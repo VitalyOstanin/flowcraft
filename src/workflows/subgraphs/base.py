@@ -5,10 +5,9 @@
 from typing import Dict, Any, List, Optional, Set
 from abc import ABC, abstractmethod
 from langgraph.graph import StateGraph, END, START
-from langgraph.graph.graph import CompiledGraph
 
-from ..state import WorkflowState
-from ..nodes import BaseNode, create_node
+from workflows.state import WorkflowState
+from workflows.nodes import BaseNode, create_node
 
 
 class BaseSubgraph(ABC):
@@ -20,7 +19,7 @@ class BaseSubgraph(ABC):
         self._nodes: Dict[str, BaseNode] = {}
         self._edges: List[tuple] = []
         self._conditional_edges: List[Dict[str, Any]] = []
-        self._compiled_graph: Optional[CompiledGraph] = None
+        self._compiled_graph: Optional[Any] = None
     
     @abstractmethod
     def define_nodes(self) -> Dict[str, BaseNode]:
@@ -55,7 +54,7 @@ class BaseSubgraph(ABC):
         
         return True
     
-    def build_graph(self) -> CompiledGraph:
+    def build_graph(self) -> Any:
         """Построение LangGraph из определения подграфа."""
         
         if self._compiled_graph is not None:

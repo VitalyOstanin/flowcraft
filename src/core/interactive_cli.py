@@ -8,8 +8,33 @@ from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from typing import Dict, Optional
 import asyncio
+import os
+import sys
 
 console = Console()
+
+class CustomPrompt(Prompt):
+    """Кастомный prompt с поддержкой команды clear"""
+    
+    @classmethod
+    def ask(cls, prompt="", *, console=None, password=False, choices=None, show_default=True, show_choices=True, default=..., stream=None):
+        """Переопределенный ask с обработкой команды clear"""
+        while True:
+            try:
+                result = super().ask(prompt, console=console, password=password, choices=choices, 
+                                   show_default=show_default, show_choices=show_choices, 
+                                   default=default, stream=stream)
+                
+                # Проверяем специальные команды
+                if result == "clear" or result == "cls":
+                    return "clear"
+                
+                return result
+                
+            except KeyboardInterrupt:
+                raise
+            except EOFError:
+                raise
 
 class SimpleInteractiveCLI:
     """Простой интерактивный CLI"""
@@ -33,13 +58,23 @@ class SimpleInteractiveCLI:
         else:
             self.command_handler = None
     
+    def clear_screen(self):
+        """Очистить экран"""
+        os.system('clear' if os.name == 'posix' else 'cls')
+        console.clear()
+    
     def start(self):
         """Запустить интерактивную сессию"""        
+        console.print("Введите '/help' для справки", style="dim")
+        
         while True:
             try:
                 action = self.show_main_menu()
                 
-                if action == "task_processed":
+                if action == "clear":
+                    self.clear_screen()
+                    continue
+                elif action == "task_processed":
                     continue  # Задача обработана, показать меню снова
                 elif action == "1":
                     self.start_workflow()
@@ -57,10 +92,17 @@ class SimpleInteractiveCLI:
                 elif action == "6":
                     console.print("До свидания!", style="green")
                     break
+                elif action == "clear":
+                    self.clear_screen()
+                    continue
                 else:
                     console.print("Неверный выбор", style="red")
                     
             except KeyboardInterrupt:
+                console.print("\nВыход из программы", style="yellow")
+                break
+            except EOFError:
+                # Ctrl-D
                 console.print("\nВыход из программы", style="yellow")
                 break
             except Exception as e:
@@ -88,11 +130,15 @@ class SimpleInteractiveCLI:
         
         # Поле ввода задачи
         console.print("\nОпишите вашу задачу:", style="bold")
-        task_input = Prompt.ask("Задача", default="")
+        task_input = CustomPrompt.ask("Задача", default="")
+        
+        if task_input == "clear":
+            self.clear_screen()
+            return "clear"
         
         if task_input.strip():
             # Обработать задачу
-            self.process_task(task_input.strip())
+            asyncio.run(self.process_task(task_input.strip()))
             return "task_processed"
         
         console.print("\nГлавное меню FlowCraft", style="bold")
@@ -100,15 +146,16 @@ class SimpleInteractiveCLI:
         console.print("2. Управление агентами")
         console.print("3. Управление этапами workflow")
         console.print("4. Показать настройки")
+        console.print("clear. Очистить экран")
         if self.command_handler:
             console.print("5. Режим команд")
             console.print("6. Выход")
-            return Prompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6"])
+            return CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "clear"])
         else:
             console.print("5. Выход")
-            return Prompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5"])
+            return CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "clear"])
     
-    def process_task(self, task_description: str):
+    async def process_task(self, task_description: str):
         """Обработать задачу пользователя с автоматическим выбором workflow"""
         if not self.workflow_manager:
             console.print("Менеджер workflow не инициализирован", style="red")
@@ -120,8 +167,8 @@ class SimpleInteractiveCLI:
         # Попытка выбора через LLM если есть workflow
         if workflows:
             try:
-                from ..llm.providers.qwen import QwenProvider
-                llm_provider = QwenProvider()
+                from llm.qwen_code import QwenCodeProvider
+                llm_provider = QwenCodeProvider()
                 
                 selected_workflow = self.workflow_manager.select_workflow_by_description(task_description, llm_provider)
                 
@@ -143,7 +190,7 @@ class SimpleInteractiveCLI:
             selected_workflow = "default"
         
         # Запрос ID задачи
-        task_id = Prompt.ask("ID задачи", default="auto")
+        task_id = CustomPrompt.ask("ID задачи", default="auto")
         
         console.print(f"Запуск workflow: [bold]{selected_workflow}[/bold]", style="green")
         console.print(f"Задача: {task_id} - {task_description}")
@@ -183,7 +230,7 @@ class SimpleInteractiveCLI:
         
         while True:
             try:
-                command = Prompt.ask("[bold cyan]>[/bold cyan]", default="")
+                command = CustomPrompt.ask("[bold cyan]>[/bold cyan]", default="")
                 
                 if command.lower() in ["exit", "quit", "q"]:
                     break
@@ -212,12 +259,12 @@ class SimpleInteractiveCLI:
             return
         
         # Запрос описания задачи от пользователя
-        user_input = Prompt.ask("Опишите что вы хотите сделать")
+        user_input = CustomPrompt.ask("Опишите что вы хотите сделать")
         
         # Попытка выбора через LLM
         try:
-            from ..llm.providers.qwen import QwenProvider
-            llm_provider = QwenProvider()
+            from llm.qwen_code import QwenCodeProvider
+            llm_provider = QwenCodeProvider()
             
             selected_workflow = self.workflow_manager.select_workflow_by_description(user_input, llm_provider)
             
@@ -230,7 +277,7 @@ class SimpleInteractiveCLI:
                     
                     if Confirm.ask("Подтвердить выбор?"):
                         # Запрос ID задачи
-                        task_id = Prompt.ask("ID задачи")
+                        task_id = CustomPrompt.ask("ID задачи")
                         
                         console.print(f"Запуск workflow: {selected_workflow}", style="green")
                         console.print(f"Задача: {task_id} - {user_input}")
@@ -250,13 +297,13 @@ class SimpleInteractiveCLI:
         for i, workflow in enumerate(workflows, 1):
             console.print(f"{i}. {workflow['name']}: {workflow['description']}")
         
-        choice = Prompt.ask(
+        choice = CustomPrompt.ask(
             "Выберите workflow", 
             choices=[str(i) for i in range(1, len(workflows) + 1)]
         )
         
         selected_workflow = workflows[int(choice) - 1]['name']
-        task_id = Prompt.ask("ID задачи")
+        task_id = CustomPrompt.ask("ID задачи")
         
         console.print(f"Запуск workflow: {selected_workflow}", style="green")
         console.print(f"Задача: {task_id} - {user_input}")
@@ -274,7 +321,7 @@ class SimpleInteractiveCLI:
             console.print("3. Удалить агента")
             console.print("4. Назад")
             
-            choice = Prompt.ask("Выберите действие", choices=["1", "2", "3", "4"])
+            choice = CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4"])
             
             if choice == "1":
                 self.list_agents()
@@ -309,9 +356,9 @@ class SimpleInteractiveCLI:
     
     def create_agent(self):
         """Создать нового агента"""
-        name = Prompt.ask("Имя агента")
-        role = Prompt.ask("Роль агента")
-        description = Prompt.ask("Описание агента")
+        name = CustomPrompt.ask("Имя агента")
+        role = CustomPrompt.ask("Роль агента")
+        description = CustomPrompt.ask("Описание агента")
         
         try:
             self.agent_manager.create_agent(name, role, description)
@@ -331,7 +378,7 @@ class SimpleInteractiveCLI:
         for i, agent in enumerate(agents, 1):
             console.print(f"{i}. {agent.get('name', '')}")
         
-        choice = Prompt.ask(
+        choice = CustomPrompt.ask(
             "Выберите агента для удаления",
             choices=[str(i) for i in range(1, len(agents) + 1)]
         )
@@ -363,7 +410,7 @@ class SimpleInteractiveCLI:
             console.print("7. Выполнить команду")
             console.print("8. Назад")
             
-            choice = Prompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "7", "8"])
+            choice = CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "7", "8"])
             
             if choice == "1":
                 self._select_workflow_for_stages()
@@ -400,7 +447,7 @@ class SimpleInteractiveCLI:
         console.print(table)
         
         try:
-            choice = int(Prompt.ask("Выберите workflow (номер)")) - 1
+            choice = int(CustomPrompt.ask("Выберите workflow (номер)")) - 1
             if 0 <= choice < len(workflows):
                 self.current_workflow = workflows[choice]['name']
                 console.print(f"Выбран workflow: {self.current_workflow}", style="green")
@@ -445,11 +492,11 @@ class SimpleInteractiveCLI:
             return
         
         try:
-            from ..workflows.stage_manager import WorkflowStage
+            from workflows.stage_manager import WorkflowStage
             
-            name = Prompt.ask("Название этапа")
-            description = Prompt.ask("Описание этапа")
-            roles_input = Prompt.ask("Роли (через запятую)")
+            name = CustomPrompt.ask("Название этапа")
+            description = CustomPrompt.ask("Описание этапа")
+            roles_input = CustomPrompt.ask("Роли (через запятую)")
             roles = [role.strip() for role in roles_input.split(",") if role.strip()]
             skippable = Confirm.ask("Этап можно пропустить?", default=False)
             
@@ -473,7 +520,7 @@ class SimpleInteractiveCLI:
             return
         
         try:
-            stage_name = Prompt.ask("Название этапа для обновления")
+            stage_name = CustomPrompt.ask("Название этапа для обновления")
             
             # Получить текущий этап
             current_stage = self.workflow_manager.get_workflow_stage(self.current_workflow, stage_name)
@@ -488,11 +535,11 @@ class SimpleInteractiveCLI:
             
             updates = {}
             
-            new_description = Prompt.ask("Новое описание (Enter - оставить текущее)", default="")
+            new_description = CustomPrompt.ask("Новое описание (Enter - оставить текущее)", default="")
             if new_description:
                 updates['description'] = new_description
             
-            new_roles_input = Prompt.ask("Новые роли через запятую (Enter - оставить текущие)", default="")
+            new_roles_input = CustomPrompt.ask("Новые роли через запятую (Enter - оставить текущие)", default="")
             if new_roles_input:
                 updates['roles'] = [role.strip() for role in new_roles_input.split(",") if role.strip()]
             
@@ -514,7 +561,7 @@ class SimpleInteractiveCLI:
             console.print("Сначала выберите workflow", style="yellow")
             return
         
-        stage_name = Prompt.ask("Название этапа для удаления")
+        stage_name = CustomPrompt.ask("Название этапа для удаления")
         
         if Confirm.ask(f"Удалить этап '{stage_name}'?"):
             try:
@@ -530,7 +577,7 @@ class SimpleInteractiveCLI:
             return
         
         try:
-            stage_name = Prompt.ask("Название этапа")
+            stage_name = CustomPrompt.ask("Название этапа")
             
             # Получить текущий статус
             stage = self.workflow_manager.get_workflow_stage(self.current_workflow, stage_name)
@@ -568,7 +615,7 @@ class SimpleInteractiveCLI:
         console.print("enable_stage name='test'")
         console.print("disable_stage name='test'")
         
-        command = Prompt.ask("Введите команду")
+        command = CustomPrompt.ask("Введите команду")
         
         def confirm_callback(message):
             return Confirm.ask(message)

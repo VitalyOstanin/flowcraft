@@ -7,9 +7,9 @@ from typing import Dict, Any, List, Optional, Callable
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from rich.console import Console
 
-from .state import WorkflowState, AgentState, add_stage_output, mark_stage_failed, require_human_input
-from ..core.trust import TrustManager
-from ..agents.manager import AgentManager
+from workflows.state import WorkflowState, AgentState, add_stage_output, mark_stage_failed, require_human_input
+from core.trust import TrustManager
+from agents.manager import AgentManager
 
 
 console = Console()

@@ -8,8 +8,8 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 from rich.console import Console
 
 from .state import WorkflowState, AgentState
-from ..llm.providers.qwen import QwenProvider
-from ..core.settings import Settings
+from llm.qwen_code import QwenCodeProvider
+from core.settings import Settings
 
 
 console = Console()
@@ -28,7 +28,7 @@ class WorkflowLLMManager:
         
         # Инициализируем доступные провайдеры
         try:
-            self.providers["qwen3-coder-plus"] = QwenProvider(self.settings)
+            self.providers["qwen3-coder-plus"] = QwenCodeProvider(self.settings)
         except Exception as e:
             console.print(f"Ошибка инициализации Qwen провайдера: {e}")
         

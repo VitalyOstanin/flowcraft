@@ -1,7 +1,7 @@
 """Интеграция LLM провайдеров с системой агентов."""
 
 from typing import List, Optional, Dict, Any, Iterator
-from ..core.settings import SettingsManager
+from core.settings import SettingsManager
 from .router import LLMRouter
 
 

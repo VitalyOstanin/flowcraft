@@ -6,7 +6,6 @@ import asyncio
 from typing import Dict, Any, List, Optional, Callable
 from pathlib import Path
 from langgraph.graph import StateGraph, END, START
-from langgraph.graph.graph import CompiledGraph
 from langgraph.checkpoint.memory import MemorySaver
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -14,8 +13,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from .state import WorkflowState, create_initial_state, add_user_input
 from .nodes import BaseNode, StartNode, EndNode, AgentNode, HumanInputNode, ConditionalNode
 from .subgraphs import get_registry, BaseSubgraph
-from ..agents.manager import AgentManager
-from ..core.trust import TrustManager
+from agents.manager import AgentManager
+from core.trust import TrustManager
 
 
 console = Console()
@@ -41,7 +40,7 @@ class WorkflowEngine:
         else:
             self.checkpointer = MemorySaver()
         
-        self._compiled_graphs: Dict[str, CompiledGraph] = {}
+        self._compiled_graphs: Dict[str, Any] = {}
     
     async def execute_workflow(self, 
                              workflow_config: Dict[str, Any],
@@ -106,7 +105,7 @@ class WorkflowEngine:
                 "failed_stages": []
             }
     
-    async def _build_graph_from_config(self, workflow_config: Dict[str, Any]) -> CompiledGraph:
+    async def _build_graph_from_config(self, workflow_config: Dict[str, Any]) -> Any:
         """Построение LangGraph из конфигурации workflow."""
         
         workflow_name = workflow_config.get("name", "unknown")
@@ -207,7 +206,7 @@ class WorkflowEngine:
         graph.add_node(stage_name, subgraph_node)
     
     async def _execute_with_human_loop(self, 
-                                     graph: CompiledGraph,
+                                     graph: Any,
                                      initial_state: WorkflowState,
                                      config: Dict[str, Any],
                                      progress: Progress,
@@ -237,7 +236,7 @@ class WorkflowEngine:
     
     async def _handle_human_input(self, 
                                 state: WorkflowState,
-                                graph: CompiledGraph,
+                                graph: Any,
                                 config: Dict[str, Any]) -> WorkflowState:
         """Обработка запроса пользовательского ввода."""
         

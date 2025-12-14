@@ -3,7 +3,7 @@
 """
 
 from typing import Dict, Any, List, Set
-from ..nodes import BaseNode, AgentNode, ConditionalNode, create_node
+from workflows.nodes import BaseNode, AgentNode, ConditionalNode, create_node
 from .base import BaseSubgraph
 
 
