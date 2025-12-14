@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from core.commands import CommandParser, CommandHandler, Command, CommandType
 from core.settings import Settings
 from agents.manager import AgentManager
-from mcp.manager import MCPManager
+from mcp_integration.manager import MCPManager
 
 
 class TestCommandParser:

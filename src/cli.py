@@ -48,7 +48,14 @@ def handle_piped_input(input_text: str, config: str, debug: bool):
         
         # Выполнение запроса
         async def process_request():
-            messages = [LLMMessage(role="user", content=input_text)]
+            # Добавляем системный промпт с языковой настройкой
+            language = settings_manager.settings.language
+            system_prompt = f"Отвечай на {language} языке." if language == "ru" else f"Respond in {language}."
+            
+            messages = [
+                LLMMessage(role="system", content=system_prompt),
+                LLMMessage(role="user", content=input_text)
+            ]
             response = await qwen_provider.chat_completion(messages)
             return response.content
         
@@ -83,7 +90,7 @@ def main(config, debug):
         trust_manager = TrustManager(settings_manager)
         agent_manager = AgentManager(settings_manager)
         workflow_loader = WorkflowLoader(settings_manager.settings.workflows_dir)
-        mcp_manager = MCPManager(settings_manager.settings)
+        mcp_manager = MCPManager(settings_manager)
         
         # Инициализация LangGraph компонентов
         console.print("Инициализация LangGraph системы...", style="blue")

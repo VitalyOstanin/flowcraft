@@ -9,6 +9,13 @@ from datetime import datetime
 
 from .base import BaseLLMProvider, LLMMessage, LLMResponse
 
+try:
+    from langchain_core.messages import BaseMessage, SystemMessage
+except ImportError:
+    # Fallback если langchain не установлен
+    BaseMessage = object
+    SystemMessage = object
+
 
 class QwenCodeProvider(BaseLLMProvider):
     """Провайдер для Qwen Code API с OAuth аутентификацией."""
@@ -78,12 +85,17 @@ class QwenCodeProvider(BaseLLMProvider):
         # Конвертировать в URL-encoded формат
         body = "&".join([f"{k}={v}" for k, v in body_data.items()])
         
+        # Используем тот же User-Agent что и оригинальный qwen CLI
+        version = "0.5.0"
+        user_agent = f"QwenCode/{version} (linux; x64)"
+        
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 self.OAUTH_TOKEN_ENDPOINT,
                 headers={
                     "Content-Type": "application/x-www-form-urlencoded",
                     "Accept": "application/json",
+                    "User-Agent": user_agent,
                 },
                 content=body,
                 timeout=30.0,
@@ -147,9 +159,14 @@ class QwenCodeProvider(BaseLLMProvider):
         if not token:
             raise ValueError("Access token не найден в credentials")
         
+        # Используем тот же User-Agent что и оригинальный qwen CLI
+        version = "0.5.0"
+        user_agent = f"QwenCode/{version} (linux; x64)"
+        
         return {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            "User-Agent": user_agent,
         }
     
     async def chat_completion(
@@ -306,3 +323,80 @@ class QwenCodeProvider(BaseLLMProvider):
                                     continue
                 else:
                     raise ValueError(f"HTTP ошибка: {e.response.status_code} - {e.response.text}")
+    
+    async def generate_with_tools(self, messages: List[BaseMessage], tools: List[Dict]) -> str:
+        """Генерация ответа с доступом к MCP инструментам."""
+        
+        # Добавляем описание инструментов в system message
+        tools_description = self._format_tools_for_prompt(tools)
+        
+        # Модифицируем первое сообщение (system) добавив описание инструментов
+        enhanced_messages = []
+        for i, msg in enumerate(messages):
+            if i == 0 and isinstance(msg, SystemMessage):
+                enhanced_content = f"{msg.content}\n\nДоступные инструменты:\n{tools_description}"
+                enhanced_messages.append(SystemMessage(content=enhanced_content))
+            else:
+                enhanced_messages.append(msg)
+        
+        # Генерируем ответ
+        response = await self.generate(enhanced_messages)
+        
+        # Парсим и выполняем вызовы инструментов если есть
+        return await self._process_tool_calls(response, tools)
+    
+    def _format_tools_for_prompt(self, tools: List[Dict]) -> str:
+        """Форматирует список инструментов для промпта."""
+        if not tools:
+            return "Инструменты недоступны."
+        
+        formatted = []
+        for tool in tools:
+            formatted.append(f"- {tool['name']}: {tool['description']}")
+        
+        formatted.append("\nДля вызова инструмента используй формат: TOOL_CALL:tool_name:parameters_json")
+        return "\n".join(formatted)
+    
+    async def _process_tool_calls(self, response: str, tools: List[Dict]) -> str:
+        """Обрабатывает вызовы инструментов в ответе LLM."""
+        import re
+        
+        # Ищем паттерн TOOL_CALL:tool_name:parameters
+        tool_pattern = r'TOOL_CALL:(\w+):({.*?})'
+        matches = re.findall(tool_pattern, response, re.DOTALL)
+        
+        if not matches:
+            return response
+        
+        # Выполняем найденные вызовы инструментов
+        results = []
+        for tool_name, params_str in matches:
+            try:
+                import json
+                params = json.loads(params_str)
+                result = await self._execute_mcp_tool(tool_name, params, tools)
+                results.append(f"Результат {tool_name}: {result}")
+            except Exception as e:
+                results.append(f"Ошибка {tool_name}: {e}")
+        
+        # Заменяем вызовы инструментов на результаты
+        processed_response = response
+        for i, (tool_name, params_str) in enumerate(matches):
+            call_text = f"TOOL_CALL:{tool_name}:{params_str}"
+            processed_response = processed_response.replace(call_text, results[i])
+        
+        return processed_response
+    
+    async def _execute_mcp_tool(self, tool_name: str, params: Dict, tools: List[Dict]) -> str:
+        """Выполняет MCP инструмент."""
+        # Находим инструмент по имени
+        tool_info = next((t for t in tools if t['name'] == tool_name), None)
+        if not tool_info:
+            return f"Инструмент {tool_name} не найден"
+        
+        # Получаем MCP сессию для выполнения
+        server_name = tool_info['server']
+        
+        # Здесь нужно получить активную MCP сессию
+        # Пока возвращаем заглушку
+        return f"Выполнен {tool_name} с параметрами {params}"

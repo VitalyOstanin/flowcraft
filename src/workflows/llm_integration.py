@@ -7,12 +7,103 @@ from typing import Dict, Any, List, Optional, Union
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from rich.console import Console
 
-from .state import WorkflowState, AgentState, agent_dict_to_state
-from llm.qwen_code import QwenCodeProvider
-from core.settings import Settings
+try:
+    from .state import WorkflowState, AgentState, agent_dict_to_state
+    from ..llm.qwen_code import QwenCodeProvider
+    from ..core.settings import Settings
+except ImportError:
+    # Fallback для прямого запуска
+    from workflows.state import WorkflowState, AgentState, agent_dict_to_state
+    from llm.qwen_code import QwenCodeProvider
+    from core.settings import Settings
 
 
 console = Console()
+
+
+class WorkflowLLMIntegration:
+    """Интеграция LLM с MCP инструментами."""
+    
+    def __init__(self, settings_manager):
+        self.settings_manager = settings_manager
+        self.settings = settings_manager.settings
+        self.providers = {}
+        self._initialize_providers()
+    
+    def _initialize_providers(self):
+        """Инициализация LLM провайдеров."""
+        try:
+            self.providers["qwen3-coder-plus"] = QwenCodeProvider(self.settings)
+        except Exception as e:
+            console.print(f"Ошибка инициализации Qwen провайдера: {e}")
+    
+    async def execute_with_mcp_tools(self, 
+                                   system_prompt: str,
+                                   user_prompt: str, 
+                                   mcp_servers: List[str],
+                                   agent_config: Dict[str, Any]) -> str:
+        """Выполнение задачи через LLM с доступом к MCP инструментам."""
+        
+        # Выбираем провайдера
+        model_name = agent_config.get('llm_model', self.settings.llm.cheap_model)
+        provider = self.providers.get(model_name)
+        
+        if not provider:
+            return f"LLM провайдер {model_name} недоступен"
+        
+        # Запускаем MCP серверы для этой задачи
+        mcp_manager = self._get_mcp_manager()
+        workflow_id = f"llm_task_{id(self)}"
+        
+        try:
+            await mcp_manager.start_workflow_servers(workflow_id, mcp_servers)
+            
+            # Получаем все инструменты от разрешенных MCP серверов
+            available_tools = await self._get_mcp_tools(mcp_manager, workflow_id, mcp_servers)
+            
+            # Выполняем через LLM с инструментами
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt)
+            ]
+            
+            result = await provider.generate_with_tools(messages, available_tools)
+            return result
+            
+        finally:
+            await mcp_manager.stop_workflow_servers(workflow_id)
+    
+    def _get_mcp_manager(self):
+        """Получает MCP менеджер из настроек."""
+        # Импортируем здесь чтобы избежать циклических импортов
+        try:
+            from ..mcp_integration.manager import MCPManager
+        except ImportError:
+            from mcp_integration.manager import MCPManager
+        return MCPManager(self.settings_manager)
+    
+    async def _get_mcp_tools(self, mcp_manager, workflow_id: str, mcp_servers: List[str]) -> List[Dict]:
+        """Получает все инструменты от разрешенных MCP серверов."""
+        tools = []
+        
+        for server_name in mcp_servers:
+            if server_name in mcp_manager.workflow_instances.get(workflow_id, {}):
+                session = mcp_manager.workflow_instances[workflow_id][server_name]
+                try:
+                    # Получаем все инструменты от MCP сервера
+                    tools_response = await session.list_tools()
+                    if tools_response and tools_response.tools:
+                        for tool in tools_response.tools:
+                            tools.append({
+                                'name': tool.name,
+                                'description': tool.description,
+                                'server': server_name,
+                                'schema': tool.inputSchema
+                            })
+                except Exception as e:
+                    console.print(f"Ошибка получения инструментов от {server_name}: {e}")
+        
+        return tools
 
 
 class WorkflowLLMManager:

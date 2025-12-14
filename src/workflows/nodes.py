@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional, Callable
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from rich.console import Console
 
-from workflows.state import WorkflowState, add_stage_output, mark_stage_failed, require_human_input, create_agent_dict, agent_dict_to_state
+from .state import WorkflowState, add_stage_output, mark_stage_failed, require_human_input, create_agent_dict, agent_dict_to_state
 from core.trust import TrustManager
 from agents.manager import AgentManager
 
@@ -253,7 +253,7 @@ class AgentNode(BaseNode):
                                 agent: Dict[str, Any], 
                                 context: Dict[str, Any], 
                                 state: WorkflowState) -> Dict[str, Any]:
-        """Выполнение задачи агентом."""
+        """Выполнение задачи агентом через LLM с доступом к MCP инструментам."""
         
         console.print(f"Агент {agent['name']} обрабатывает задачу...")
         
@@ -261,10 +261,10 @@ class AgentNode(BaseNode):
         stage_config = self.stage_config or {}
         mcp_servers = stage_config.get('mcp_servers', [])
         
-        if 'youtrack-mcp' in mcp_servers and agent.get('role') == 'analyst':
-            # Выполняем реальный анализ активности через YouTrack MCP (прямое соединение)
+        if mcp_servers:
+            # Выполняем задачу через LLM с доступом к MCP инструментам
             try:
-                result = await self._execute_youtrack_analysis_direct(context)
+                result = await self._execute_with_llm_and_mcp(agent, context, mcp_servers)
                 return {
                     "agent": agent["name"],
                     "stage": self.name,
@@ -273,7 +273,7 @@ class AgentNode(BaseNode):
                     "context_used": context
                 }
             except Exception as e:
-                console.print(f"Ошибка YouTrack анализа: {e}", style="red")
+                console.print(f"Ошибка выполнения с MCP: {e}", style="red")
         
         # Заглушка для других случаев
         await asyncio.sleep(1)
@@ -286,83 +286,61 @@ class AgentNode(BaseNode):
             "context_used": context
         }
     
-    async def _execute_youtrack_analysis_direct(self, context: Dict[str, Any]) -> str:
-        """Прямое выполнение анализа активности в YouTrack."""
-        try:
-            from datetime import datetime, timedelta
-            import json
-            from mcp import ClientSession, StdioServerParameters
-            from mcp.client.stdio import stdio_client
-            
-            # Период за последние 7 дней
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=7)
-            
-            # Получаем настройки YouTrack из конфигурации MCP
-            mcp_config = None
-            if hasattr(self.agent_manager, 'settings_manager'):
-                settings = self.agent_manager.settings_manager.settings
-                for server_config in settings.mcp_servers:
-                    if server_config.name == 'youtrack-mcp':
-                        mcp_config = server_config
-                        break
-            
-            if not mcp_config:
-                return "Конфигурация YouTrack MCP не найдена в настройках"
-            
-            server_params = StdioServerParameters(
-                command=mcp_config.command,
-                args=mcp_config.args,
-                env=mcp_config.env or {}
-            )
-            
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    
-                    # Получаем пользователя
-                    user_result = await session.call_tool('user_current', {})
-                    user_data = json.loads(user_result.content[0].text)
-                    user_info = user_data.get('payload', {}).get('user', {})
-                    
-                    # Получаем work items
-                    workitems_result = await session.call_tool('workitems_list', {
-                        'startDate': start_date.strftime('%Y-%m-%d'),
-                        'endDate': end_date.strftime('%Y-%m-%d')
-                    })
-                    workitems_data = json.loads(workitems_result.content[0].text)
-                    workitems = workitems_data.get('payload', {}).get('items', [])
-                    
-                    # Формируем отчет
-                    if workitems:
-                        total_minutes = sum(item.get('duration', {}).get('minutes', 0) for item in workitems)
-                        total_hours = total_minutes / 60
-                        
-                        report = f"=== Анализ активности пользователя {user_info.get('name', 'N/A')} ===\n\n"
-                        report += f"Период: {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}\n"
-                        report += f"Найдено work items: {len(workitems)}\n"
-                        report += f"Общее время работы: {total_hours:.1f} часов ({total_minutes} минут)\n"
-                        report += f"Workflow: {self.workflow_id or 'direct'}\n\n"
-                        
-                        # Топ-5 задач по времени
-                        by_issue = {}
-                        for item in workitems:
-                            issue_id = item.get('issue', {}).get('idReadable', 'N/A')
-                            if issue_id not in by_issue:
-                                by_issue[issue_id] = {'minutes': 0}
-                            by_issue[issue_id]['minutes'] += item.get('duration', {}).get('minutes', 0)
-                        
-                        report += "Топ задач по времени:\n"
-                        for issue_id, data in sorted(by_issue.items(), key=lambda x: x[1]['minutes'], reverse=True)[:5]:
-                            hours = data['minutes'] / 60
-                            report += f"• {issue_id}: {hours:.1f}ч ({data['minutes']}м)\n"
-                        
-                        return report
-                    else:
-                        return f"Анализ активности пользователя {user_info.get('name', 'N/A')}: work items за последние 7 дней не найдены"
-                        
-        except Exception as e:
-            return f"Ошибка анализа активности: {str(e)}"
+    async def _execute_with_llm_and_mcp(self, agent: Dict[str, Any], context: Dict[str, Any], mcp_servers: List[str]) -> str:
+        """Выполнение задачи через LLM с доступом к MCP инструментам."""
+        from .llm_integration import WorkflowLLMIntegration
+        
+        # Создаем LLM интеграцию
+        llm_integration = WorkflowLLMIntegration(self.agent_manager.settings_manager)
+        
+        # Формируем system prompt с описанием доступных MCP инструментов
+        system_prompt = self._build_system_prompt_with_mcp(agent, mcp_servers)
+        
+        # Формируем user prompt с контекстом задачи
+        user_prompt = self._build_user_prompt(context)
+        
+        # Выполняем через LLM с MCP инструментами (только от разрешенных серверов)
+        result = await llm_integration.execute_with_mcp_tools(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            mcp_servers=mcp_servers,
+            agent_config=agent
+        )
+        
+        return result
+    
+    def _build_system_prompt_with_mcp(self, agent: Dict[str, Any], mcp_servers: List[str]) -> str:
+        """Создает system prompt с описанием доступных MCP инструментов."""
+        base_prompt = agent.get('prompt', f"Ты {agent.get('role', 'агент')}.")
+        
+        mcp_description = ""
+        if 'youtrack-mcp' in mcp_servers:
+            mcp_description += """
+У тебя есть доступ к YouTrack MCP инструментам для анализа активности:
+- workitems_list: получить список work items за период
+- issues_search: поиск задач по критериям  
+- user_current: получить текущего пользователя
+- issues_starred_list: получить избранные задачи
+
+Используй эти инструменты для получения актуальных данных из YouTrack.
+"""
+        
+        return f"{base_prompt}\n{mcp_description}"
+    
+    def _build_user_prompt(self, context: Dict[str, Any]) -> str:
+        """Создает user prompt с контекстом задачи."""
+        task_description = context.get('task_description', 'Выполни анализ активности')
+        
+        prompt = f"""Задача: {task_description}
+
+Контекст:
+- Период анализа: последние 7 дней
+- Требуется получить данные о work items и активности пользователя
+- Проанализируй полученные данные и предоставь краткий отчет
+
+Используй доступные MCP инструменты для получения актуальных данных."""
+        
+        return prompt
 
 
 class HumanInputNode(BaseNode):

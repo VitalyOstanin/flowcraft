@@ -9,8 +9,7 @@ from unittest.mock import Mock, patch, AsyncMock
 # Добавить src в путь
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from mcp.manager import MCPManager, MCPServer, MCPServerStatus
-from mcp.client import MCPClient, MCPClientManager
+from mcp_integration.manager import MCPManager, MCPServer, MCPServerStatus
 from core.settings import Settings, MCPServerConfig
 
 

@@ -37,8 +37,9 @@ class MCPServer:
 class MCPManager:
     """Менеджер для управления MCP серверами с изоляцией по workflow."""
 
-    def __init__(self, settings):
-        self.settings = settings
+    def __init__(self, settings_manager):
+        self.settings_manager = settings_manager
+        self.settings = settings_manager.settings
         self.server_configs: Dict[str, MCPServer] = {}
         self.workflow_instances: Dict[str, Dict[str, MCPServer]] = {}  # workflow_id -> {server_name -> instance}
         self._load_servers()

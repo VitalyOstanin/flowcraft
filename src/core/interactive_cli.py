@@ -123,7 +123,7 @@ class SimpleInteractiveCLI:
         console.print("3. Используйте Ctrl+C для выхода")
         console.print("4. ESC для прерывания выполнения workflow")
 
-    def select_workflow(self):
+    async def select_workflow(self):
         """Выбрать workflow"""
         if not self.workflow_manager:
             console.print("Менеджер workflow не инициализирован", style="red")
@@ -153,10 +153,36 @@ class SimpleInteractiveCLI:
                 console.print("Неверный выбор", style="red")
                 return
             selected_workflow = workflows[int(choice) - 1]
+            
+            # Остановить MCP серверы предыдущего workflow
+            if self.current_workflow and self.mcp_manager:
+                await self._stop_current_workflow_mcp_servers()
+            
             self.current_workflow = selected_workflow
             console.print(f"Выбран workflow: [bold green]{selected_workflow['name']}[/bold green]")
         except (ValueError, IndexError, KeyboardInterrupt):
             console.print("Неверный выбор", style="red")
+
+    async def _stop_all_mcp_servers(self):
+        """Остановить все активные MCP серверы."""
+        if not self.mcp_manager:
+            return
+            
+        for workflow_id in list(self.mcp_manager.workflow_instances.keys()):
+            await self.mcp_manager.stop_workflow_servers(workflow_id)
+
+    async def _stop_current_workflow_mcp_servers(self):
+        """Остановить MCP серверы текущего workflow."""
+        if not self.current_workflow or not self.mcp_manager:
+            return
+            
+        workflow_name = self.current_workflow['name']
+        
+        # Остановить все MCP серверы для текущего workflow
+        for workflow_id in list(self.mcp_manager.workflow_instances.keys()):
+            if workflow_id.startswith(workflow_name) or workflow_id.endswith(workflow_name):
+                await self.mcp_manager.stop_workflow_servers(workflow_id)
+                console.print(f"Остановлены MCP серверы для workflow: {workflow_name}", style="dim yellow")
 
     def clear_screen(self):
         """Очистить экран"""
@@ -208,6 +234,11 @@ class SimpleInteractiveCLI:
                 break
             except Exception as e:
                 console.print(f"Ошибка: {e}", style="red")
+        
+        # Остановить все MCP серверы при выходе
+        if self.mcp_manager:
+            await self._stop_all_mcp_servers()
+            console.print("MCP серверы остановлены", style="dim yellow")
     
     async def process_task_with_workflow(self, task: str):
         """Обработать задачу с использованием workflow или прямого LLM"""
@@ -216,7 +247,7 @@ class SimpleInteractiveCLI:
                 # Спросить подтверждение для смены workflow
                 console.print(f"Текущий workflow: {self.current_workflow['name']}")
                 if not Confirm.ask("Продолжить с текущим workflow?"):
-                    self.select_workflow()
+                    await self.select_workflow()
                     if not self.current_workflow:
                         return
             
@@ -337,7 +368,7 @@ class SimpleInteractiveCLI:
             return "continue"
         
         if choice == "1":
-            self.select_workflow()
+            await self.select_workflow()
         elif choice == "2":
             self.manage_workflows()
         elif choice == "3":
