@@ -7,21 +7,37 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 from typing import Dict, Optional
+import asyncio
 
 console = Console()
 
 class SimpleInteractiveCLI:
     """Простой интерактивный CLI"""
     
-    def __init__(self, settings_manager, agent_manager, workflow_loader):
+    def __init__(self, settings_manager, agent_manager, workflow_loader, mcp_manager=None):
         self.settings_manager = settings_manager
         self.agent_manager = agent_manager
         self.workflow_loader = workflow_loader
+        self.mcp_manager = mcp_manager
         self.current_workflow = None
+        
+        # Инициализация обработчика команд
+        if mcp_manager:
+            from .commands import CommandHandler
+            self.command_handler = CommandHandler(
+                settings_manager.settings,
+                agent_manager,
+                mcp_manager
+            )
+        else:
+            self.command_handler = None
     
     def start(self):
         """Запустить интерактивную сессию"""
         console.print(Panel("Добро пожаловать в FlowCraft!", style="bold blue"))
+        
+        if self.command_handler:
+            console.print("Введите /help для справки по командам", style="dim")
         
         while True:
             try:
@@ -34,6 +50,11 @@ class SimpleInteractiveCLI:
                 elif action == "3":
                     self.show_settings()
                 elif action == "4":
+                    if self.command_handler:
+                        asyncio.run(self.command_mode())
+                    else:
+                        console.print("Команды недоступны (MCP менеджер не инициализирован)", style="yellow")
+                elif action == "5":
                     console.print("До свидания!", style="green")
                     break
                 else:
@@ -52,9 +73,36 @@ class SimpleInteractiveCLI:
         console.print("1. Запустить workflow")
         console.print("2. Управление агентами")
         console.print("3. Показать настройки")
-        console.print("4. Выход")
+        if self.command_handler:
+            console.print("4. Режим команд")
+            console.print("5. Выход")
+            return Prompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5"])
+        else:
+            console.print("4. Выход")
+            return Prompt.ask("Выберите действие", choices=["1", "2", "3", "4"])
+    
+    async def command_mode(self):
+        """Режим команд"""
+        console.print(Panel("Режим команд (введите 'exit' для выхода)", style="cyan"))
+        console.print("Введите /help для справки", style="dim")
         
-        return Prompt.ask("Выберите действие", choices=["1", "2", "3", "4"])
+        while True:
+            try:
+                command = Prompt.ask("[bold cyan]>[/bold cyan]", default="")
+                
+                if command.lower() in ["exit", "quit", "q"]:
+                    break
+                
+                if command.startswith("/"):
+                    result = await self.command_handler.handle_command(command)
+                    console.print(result)
+                else:
+                    console.print("Команды должны начинаться с '/'", style="yellow")
+                    
+            except KeyboardInterrupt:
+                break
+            except Exception as e:
+                console.print(f"Ошибка выполнения команды: {e}", style="red")
     
     def start_workflow(self):
         """Запустить workflow"""

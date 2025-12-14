@@ -19,6 +19,7 @@ from core.interactive_cli import SimpleInteractiveCLI
 from tools.filesystem import FileSystemTools
 from tools.shell import ShellTools
 from tools.search import SearchTools
+from mcp.manager import MCPManager
 
 console = Console()
 
@@ -35,6 +36,7 @@ def main(config, debug):
         trust_manager = TrustManager(settings_manager)
         agent_manager = AgentManager(settings_manager)
         workflow_loader = WorkflowLoader(settings_manager.settings.workflows_dir)
+        mcp_manager = MCPManager(settings_manager.settings)
         
         # Инициализация инструментов
         filesystem_tools = FileSystemTools()
@@ -46,9 +48,10 @@ def main(config, debug):
             console.print(f"Конфигурация: {config}")
             console.print(f"Агентов загружено: {len(agent_manager.agents)}")
             console.print(f"Workflow доступно: {len(workflow_loader.list_workflows())}")
+            console.print(f"MCP серверов: {len(mcp_manager.servers)}")
         
         # Запуск интерактивного CLI
-        cli = SimpleInteractiveCLI(settings_manager, agent_manager, workflow_loader)
+        cli = SimpleInteractiveCLI(settings_manager, agent_manager, workflow_loader, mcp_manager)
         cli.start()
         
     except Exception as e:
