@@ -1,0 +1,112 @@
+name: full-development
+description: "Полный цикл разработки с использованием подграфов LangGraph"
+
+roles:
+  - name: developer
+    prompt: "Ты опытный разработчик. Анализируй код, реализуй функциональность, следуй лучшим практикам."
+    expensive_model: false
+    capabilities: ["coding", "debugging", "architecture"]
+  
+  - name: tester
+    prompt: "Ты тестировщик. Создавай качественные тесты, находи баги, проверяй функциональность."
+    expensive_model: false
+    capabilities: ["testing", "quality_assurance"]
+  
+  - name: security_expert
+    prompt: "Ты эксперт по безопасности. Ищи уязвимости, проверяй безопасность кода и конфигураций."
+    expensive_model: true
+    capabilities: ["security_analysis", "vulnerability_assessment"]
+  
+  - name: devops
+    prompt: "Ты DevOps инженер. Настраивай CI/CD, развертывание, мониторинг."
+    expensive_model: false
+    capabilities: ["deployment", "ci_cd", "monitoring"]
+
+stages:
+  - name: analyze_requirements
+    roles: [developer]
+    skippable: false
+    description: "Анализ требований и планирование архитектуры"
+  
+  - name: code_analysis
+    type: subgraph
+    subgraph: code_analysis
+    description: "Комплексный анализ существующего кода"
+    input_requirements:
+      - code_path: "Путь к исходному коду"
+      - project_type: "Тип проекта (python, javascript, etc.)"
+  
+  - name: implement_feature
+    roles: [developer]
+    skippable: false
+    description: "Реализация новой функциональности"
+    depends_on: [analyze_requirements, code_analysis]
+  
+  - name: testing
+    type: subgraph
+    subgraph: testing
+    description: "Комплексное тестирование"
+    input_requirements:
+      - code_path: "Путь к коду для тестирования"
+      - test_framework: "Используемый фреймворк тестирования"
+  
+  - name: security_review
+    type: subgraph
+    subgraph: security_review
+    description: "Проверка безопасности"
+    input_requirements:
+      - code_path: "Путь к коду"
+      - config_path: "Путь к конфигурациям"
+  
+  - name: create_documentation
+    type: subgraph
+    subgraph: documentation
+    description: "Создание документации"
+    input_requirements:
+      - code_path: "Путь к коду"
+      - project_info: "Информация о проекте"
+  
+  - name: prepare_deployment
+    type: subgraph
+    subgraph: deployment
+    description: "Подготовка к развертыванию"
+    input_requirements:
+      - build_path: "Путь к сборке"
+      - target_environment: "Целевая среда"
+  
+  - name: final_review
+    roles: [developer, tester]
+    skippable: true
+    description: "Финальный обзор и проверка готовности"
+
+# Условные переходы
+conditional_flows:
+  - from: security_review
+    condition: "security_issues_found"
+    true_path: implement_feature  # Возврат к реализации для исправления
+    false_path: create_documentation  # Продолжение к документации
+  
+  - from: testing
+    condition: "tests_failed"
+    true_path: implement_feature  # Возврат к реализации
+    false_path: security_review  # Продолжение к проверке безопасности
+
+# Параллельные этапы
+parallel_stages:
+  - stages: [create_documentation, prepare_deployment]
+    wait_for: [security_review]
+    description: "Документация и подготовка развертывания могут выполняться параллельно"
+
+# Настройки workflow
+settings:
+  max_retries: 3
+  timeout_minutes: 120
+  checkpoint_frequency: "after_each_stage"
+  human_approval_required:
+    - security_review
+    - prepare_deployment
+  
+  notifications:
+    on_completion: true
+    on_failure: true
+    on_human_input_required: true

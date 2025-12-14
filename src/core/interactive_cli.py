@@ -145,8 +145,33 @@ class SimpleInteractiveCLI:
         console.print(f"Запуск workflow: [bold]{selected_workflow}[/bold]", style="green")
         console.print(f"Задача: {task_id} - {task_description}")
         
-        # TODO: Реальный запуск workflow
-        console.print("Workflow запущен (заглушка)", style="yellow")
+        # Реальный запуск workflow через LangGraph
+        try:
+            result = await self.workflow_manager.execute_workflow(
+                workflow_name=selected_workflow,
+                task_description=task_description,
+                thread_id=task_id if task_id != "auto" else None
+            )
+            
+            if result.get("success", False):
+                console.print("Workflow завершен успешно!", style="green")
+                
+                # Показываем результаты
+                completed = result.get("completed_stages", [])
+                if completed:
+                    console.print(f"Завершенные этапы: {', '.join(completed)}")
+                
+            else:
+                console.print("Workflow завершен с ошибками", style="red")
+                error = result.get("error", "Неизвестная ошибка")
+                console.print(f"Ошибка: {error}")
+                
+                failed = result.get("failed_stages", [])
+                if failed:
+                    console.print(f"Неуспешные этапы: {', '.join(failed)}")
+        
+        except Exception as e:
+            console.print(f"Критическая ошибка: {str(e)}", style="red")
 
     async def command_mode(self):
         """Режим команд"""

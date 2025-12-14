@@ -1,0 +1,89 @@
+name: bug-fix
+description: "Workflow для исправления багов с использованием LangGraph"
+
+roles:
+  - name: developer
+    prompt: "Ты разработчик. Анализируй и исправляй баги. Будь методичным и внимательным."
+    expensive_model: false
+    capabilities: ["debugging", "coding", "analysis"]
+  
+  - name: tester
+    prompt: "Ты тестировщик. Проверяй исправления, создавай тесты для предотвращения регрессии."
+    expensive_model: false
+    capabilities: ["testing", "verification"]
+
+stages:
+  - name: analyze_bug
+    roles: [developer]
+    skippable: false
+    description: "Анализ бага и воспроизведение проблемы"
+    human_input_required: true
+    human_input_prompt: "Опишите детали бага и шаги для воспроизведения"
+  
+  - name: investigate_root_cause
+    roles: [developer]
+    skippable: false
+    description: "Поиск первопричины бага в коде"
+    depends_on: [analyze_bug]
+  
+  - name: design_fix
+    roles: [developer]
+    skippable: false
+    description: "Проектирование решения для исправления"
+    depends_on: [investigate_root_cause]
+  
+  - name: implement_fix
+    roles: [developer]
+    skippable: false
+    description: "Реализация исправления"
+    depends_on: [design_fix]
+  
+  - name: create_regression_tests
+    roles: [tester]
+    skippable: false
+    description: "Создание тестов для предотвращения повторения бага"
+    depends_on: [implement_fix]
+  
+  - name: verify_fix
+    roles: [tester]
+    skippable: false
+    description: "Проверка исправления и запуск тестов"
+    depends_on: [create_regression_tests]
+  
+  - name: code_review
+    roles: [developer]
+    skippable: true
+    description: "Код-ревью исправления"
+    depends_on: [verify_fix]
+    human_approval_required: true
+
+# Условные переходы
+conditional_flows:
+  - from: verify_fix
+    condition: "fix_verification_failed"
+    true_path: investigate_root_cause  # Возврат к анализу
+    false_path: code_review  # Продолжение к ревью
+
+# Настройки workflow
+settings:
+  max_retries: 2
+  timeout_minutes: 60
+  checkpoint_frequency: "after_each_stage"
+  
+  human_approval_required:
+    - code_review
+  
+  notifications:
+    on_completion: true
+    on_failure: true
+    on_human_input_required: true
+  
+  # Автоматическое создание отчета
+  auto_report:
+    enabled: true
+    include_sections:
+      - bug_description
+      - root_cause_analysis
+      - fix_implementation
+      - test_results
+      - verification_status
