@@ -10,6 +10,27 @@ from typing import Dict, Optional
 import asyncio
 import os
 import sys
+import termios
+import tty
+
+def getch():
+    """Получить один символ без нажатия Enter"""
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(sys.stdin.fileno())
+        ch = sys.stdin.read(1)
+        if ch == '\x1b':  # ESC
+            return ch
+        # Для обычных символов читаем до Enter
+        if ch != '\n' and ch != '\r':
+            sys.stdout.write(ch)
+            sys.stdout.flush()
+            line = ch + sys.stdin.readline()
+            return line.rstrip('\n\r')
+        return ch
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 console = Console()
 
@@ -152,7 +173,7 @@ class SimpleInteractiveCLI:
             try:
                 # Основной цикл - ввод задачи
                 console.print("\nОпишите вашу задачу:", style="bold")
-                task_input = CustomPrompt.ask("Задача", default="")
+                task_input = input("Задача: ")
                 
                 if task_input == "clear":
                     self.clear_screen()
@@ -180,9 +201,6 @@ class SimpleInteractiveCLI:
                     if action == "exit":
                         break
                     
-            except KeyboardInterrupt:
-                console.print("\nВыход из программы", style="yellow")
-                break
             except EOFError:
                 console.print("\nВыход из программы", style="yellow")
                 break
@@ -221,7 +239,15 @@ class SimpleInteractiveCLI:
             from llm.base import LLMMessage
             
             qwen_provider = QwenCodeProvider()
-            messages = [LLMMessage(role="user", content=task)]
+            
+            # Создаем system prompt с языковой настройкой
+            language = self.settings_manager.settings.language
+            system_prompt = f"Отвечай на {language} языке." if language == "ru" else f"Respond in {language}."
+            
+            messages = [
+                LLMMessage(role="system", content=system_prompt),
+                LLMMessage(role="user", content=task)
+            ]
             response = await qwen_provider.chat_completion(messages)
             
             console.print(f"\n{response.content}", style="green")
@@ -252,12 +278,25 @@ class SimpleInteractiveCLI:
         console.print("ESC. Вернуться к вводу задач")
         
         try:
-            choice = input("Выберите действие [1/2/3/4/5/6]: ").strip()
+            sys.stdout.write("Выберите действие [1/2/3/4/5/6]: ")
+            sys.stdout.flush()
+            choice = getch()
+            
+            # Проверка на ESC
+            if choice == '\x1b':
+                console.print("\nВозврат к основному меню...", style="dim")
+                return "continue"
+                
+            choice = choice.strip()
             if choice not in ["1", "2", "3", "4", "5", "6"]:
-                console.print("Неверный выбор", style="red")
+                console.print("\nНеверный выбор", style="red")
                 return "continue"
         except KeyboardInterrupt:
-            # ESC или Ctrl+C - возврат к основному циклу
+            # Ctrl+C - возврат к основному циклу
+            console.print("\nВозврат к основному меню...", style="dim")
+            return "continue"
+        except Exception as e:
+            console.print(f"\nОшибка ввода: {e}", style="red")
             return "continue"
         
         if choice == "1":
