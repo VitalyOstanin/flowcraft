@@ -6,7 +6,7 @@ import os
 import pytest
 
 # Добавляем src в путь
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from workflows.manager import WorkflowManager
 from core.settings import Settings

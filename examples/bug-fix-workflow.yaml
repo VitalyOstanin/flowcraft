@@ -1,57 +1,53 @@
 name: bug-fix
 description: "Workflow для исправления багов с использованием LangGraph"
 
-roles:
-  - name: developer
-    prompt: "Ты разработчик. Анализируй и исправляй баги. Будь методичным и внимательным."
-    expensive_model: false
-    capabilities: ["debugging", "coding", "analysis"]
-  
-  - name: tester
-    prompt: "Ты тестировщик. Проверяй исправления, создавай тесты для предотвращения регрессии."
-    expensive_model: false
-    capabilities: ["testing", "verification"]
-
 stages:
   - name: analyze_bug
-    roles: [developer]
+    agent: developer-basic
+    user_prompt: "Проанализируй этот баг и воспроизведи проблему"
     skippable: false
     description: "Анализ бага и воспроизведение проблемы"
     human_input_required: true
     human_input_prompt: "Опишите детали бага и шаги для воспроизведения"
   
   - name: investigate_root_cause
-    roles: [developer]
+    agent: developer-advanced
+    user_prompt: "Найди первопричину бага в коде, проведи глубокий анализ"
     skippable: false
     description: "Поиск первопричины бага в коде"
     depends_on: [analyze_bug]
   
   - name: design_fix
-    roles: [developer]
+    agent: developer-advanced
+    user_prompt: "Спроектируй решение для исправления, учитывая архитектуру системы"
     skippable: false
     description: "Проектирование решения для исправления"
     depends_on: [investigate_root_cause]
   
   - name: implement_fix
-    roles: [developer]
+    agent: developer-basic
+    user_prompt: "Реализуй исправление согласно проекту"
     skippable: false
     description: "Реализация исправления"
     depends_on: [design_fix]
   
   - name: create_regression_tests
-    roles: [tester]
+    agent: tester-basic
+    user_prompt: "Создай тесты для предотвращения повторения этого бага"
     skippable: false
     description: "Создание тестов для предотвращения повторения бага"
     depends_on: [implement_fix]
   
   - name: verify_fix
-    roles: [tester]
+    agent: tester-basic
+    user_prompt: "Проверь исправление и запусти все тесты"
     skippable: false
     description: "Проверка исправления и запуск тестов"
     depends_on: [create_regression_tests]
   
   - name: code_review
-    roles: [developer]
+    agent: developer-advanced
+    user_prompt: "Проведи код-ревью исправления, проверь качество и соответствие стандартам"
     skippable: true
     description: "Код-ревью исправления"
     depends_on: [verify_fix]

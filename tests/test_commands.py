@@ -1,12 +1,17 @@
 """Тесты для системы команд управления."""
 
 import pytest
+import sys
+from pathlib import Path
 from unittest.mock import Mock, AsyncMock
 
-from src.core.commands import CommandParser, CommandHandler, Command, CommandType
-from src.core.settings import Settings
-from src.agents.manager import AgentManager
-from src.mcp.manager import MCPManager
+# Добавить src в путь
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from core.commands import CommandParser, CommandHandler, Command, CommandType
+from core.settings import Settings
+from agents.manager import AgentManager
+from mcp.manager import MCPManager
 
 
 class TestCommandParser:

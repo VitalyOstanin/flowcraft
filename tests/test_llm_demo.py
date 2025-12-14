@@ -6,10 +6,10 @@
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from src.core.settings import SettingsManager, Settings, LLMConfig
-from src.llm.integration import LLMIntegration
+from core.settings import SettingsManager, Settings, LLMConfig
+from llm.integration import LLMIntegration
 from unittest.mock import MagicMock
 
 

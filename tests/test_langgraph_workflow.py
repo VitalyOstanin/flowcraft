@@ -4,14 +4,18 @@
 
 import pytest
 import asyncio
+import sys
 from unittest.mock import Mock, AsyncMock
 from pathlib import Path
 
-from src.workflows.state import WorkflowState, AgentState, create_initial_state
-from src.workflows.nodes import StartNode, EndNode, AgentNode
-from src.workflows.engine import WorkflowEngine
-from src.workflows.subgraphs.common import CodeAnalysisSubgraph
-from src.workflows.subgraphs.registry import SubgraphRegistry
+# Добавить src в путь
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from workflows.state import WorkflowState, AgentState, create_initial_state
+from workflows.nodes import StartNode, EndNode, AgentNode
+from workflows.engine import WorkflowEngine
+from workflows.subgraphs.common import CodeAnalysisSubgraph
+from workflows.subgraphs.registry import SubgraphRegistry
 
 
 class TestWorkflowState:
@@ -287,7 +291,7 @@ stages:
         mock_agent_manager = Mock()
         mock_trust_manager = Mock()
         
-        from src.workflows.manager import WorkflowManager
+        from workflows.manager import WorkflowManager
         
         engine = WorkflowEngine(
             agent_manager=mock_agent_manager,

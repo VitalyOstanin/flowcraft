@@ -5,11 +5,15 @@
 import pytest
 import tempfile
 import os
+import sys
 from pathlib import Path
 import yaml
 
-from src.workflows.stage_manager import StageManager, StageCommandProcessor, WorkflowStage
-from src.core.settings import Settings, LLMConfig
+# Добавить src в путь
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from workflows.stage_manager import StageManager, StageCommandProcessor, WorkflowStage
+from core.settings import Settings, LLMConfig
 
 
 @pytest.fixture

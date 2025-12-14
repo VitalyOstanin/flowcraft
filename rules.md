@@ -39,6 +39,8 @@
 В проекте предпочитать uv вместо pip для управления зависимостями:
 - `uv pip install package` вместо `pip install package`
 - `uv pip install -r requirements.txt` для установки зависимостей
+- `uv run python script.py` вместо `python script.py` для запуска скриптов
+- `uv run python -c "код"` вместо `python -c "код"` для отладки и тестирования
 
 ## 5. Управление задачами
 

@@ -33,10 +33,10 @@ def test_basic_functionality():
         # Создание тестового агента
         agent = agent_manager.create_agent(
             name="test_agent",
-            role="developer",
+            system_prompt="Ты тестовый разработчик",
             description="Тестовый агент",
             capabilities=["coding"],
-            llm_model="qwen-code"
+            llm_model="qwen3-coder-plus"
         )
         console.print(f"   Агент создан: {agent.name}", style="green")
         

@@ -1,9 +1,15 @@
 """Интеграционный тест для полной LLM системы."""
 
 import pytest
+import sys
+from pathlib import Path
 from unittest.mock import patch, MagicMock
-from src.core.settings import SettingsManager, Settings, LLMConfig
-from src.llm.integration import LLMIntegration
+
+# Добавить src в путь
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+
+from core.settings import SettingsManager, Settings, LLMConfig
+from llm.integration import LLMIntegration
 
 
 class TestLLMIntegrationFull:

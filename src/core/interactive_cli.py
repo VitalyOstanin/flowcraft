@@ -444,12 +444,12 @@ class SimpleInteractiveCLI:
     
     def _create_workflow_manual(self):
         """Ручное создание workflow"""
-        name = Prompt.ask("Название workflow")
+        name = CustomPrompt.ask("Название workflow")
         if not name:
             console.print("Название не может быть пустым", style="red")
             return
             
-        description = Prompt.ask("Описание workflow")
+        description = CustomPrompt.ask("Описание workflow")
         
         # Базовая конфигурация с минимальным stage
         config = {
@@ -483,7 +483,7 @@ class SimpleInteractiveCLI:
             from llm.base import LLMMessage
             
             # Запрос описания от пользователя
-            user_description = Prompt.ask("Опишите какой workflow вы хотите создать")
+            user_description = CustomPrompt.ask("Опишите какой workflow вы хотите создать")
             if not user_description:
                 console.print("Описание не может быть пустым", style="red")
                 return
@@ -624,7 +624,7 @@ class SimpleInteractiveCLI:
         for i, workflow in enumerate(workflows, 1):
             console.print(f"{i}. {workflow['name']} - {workflow['description']}")
         
-        choice = Prompt.ask("Выберите номер workflow для удаления")
+        choice = CustomPrompt.ask("Выберите номер workflow для удаления")
         try:
             index = int(choice) - 1
             if 0 <= index < len(workflows):
@@ -652,7 +652,7 @@ class SimpleInteractiveCLI:
             from llm.base import LLMMessage
             
             # Запрос описания от пользователя
-            user_description = Prompt.ask("Опишите какой workflow вы хотите удалить")
+            user_description = CustomPrompt.ask("Опишите какой workflow вы хотите удалить")
             if not user_description:
                 console.print("Описание не может быть пустым", style="red")
                 return
@@ -745,28 +745,50 @@ class SimpleInteractiveCLI:
             console.print("Нет созданных агентов", style="yellow")
             return
         
+        # Сортировка по алфавиту по имени
+        agents = sorted(agents, key=lambda agent: agent.name)
+        
         table = Table(title="Агенты")
         table.add_column("Имя", style="cyan")
-        table.add_column("Роль", style="magenta")
+        table.add_column("Модель", style="magenta")
         table.add_column("Описание", style="green")
+        table.add_column("Статус", style="blue")
         
         for agent in agents:
             table.add_row(
-                agent.get("name", ""),
-                agent.get("role", ""),
-                agent.get("description", "")
+                agent.name,
+                agent.llm_model,
+                agent.description,
+                agent.status.value
             )
         
         console.print(table)
     
     def create_agent(self):
         """Создать нового агента"""
-        name = CustomPrompt.ask("Имя агента")
-        role = CustomPrompt.ask("Роль агента")
+        name = CustomPrompt.ask("Имя агента (например: developer-basic)")
+        system_prompt = CustomPrompt.ask("Системный промпт агента")
         description = CustomPrompt.ask("Описание агента")
         
+        # Выбор модели
+        model_choice = CustomPrompt.ask(
+            "Модель LLM",
+            choices=["qwen3-coder-plus", "kiro-cli"],
+            default="qwen3-coder-plus"
+        )
+        
+        # Ввод capabilities
+        capabilities_str = CustomPrompt.ask("Возможности (через запятую)", default="coding,debugging")
+        capabilities = [cap.strip() for cap in capabilities_str.split(",")]
+        
         try:
-            self.agent_manager.create_agent(name, role, description)
+            self.agent_manager.create_agent(
+                name=name,
+                system_prompt=system_prompt,
+                description=description,
+                capabilities=capabilities,
+                llm_model=model_choice
+            )
             console.print(f"Агент '{name}' создан", style="green")
         except Exception as e:
             console.print(f"Ошибка создания агента: {e}", style="red")
@@ -781,14 +803,14 @@ class SimpleInteractiveCLI:
         
         # Показать список для выбора
         for i, agent in enumerate(agents, 1):
-            console.print(f"{i}. {agent.get('name', '')}")
+            console.print(f"{i}. {agent.name}")
         
         choice = CustomPrompt.ask(
             "Выберите агента для удаления",
             choices=[str(i) for i in range(1, len(agents) + 1)]
         )
         
-        agent_name = agents[int(choice) - 1].get("name", "")
+        agent_name = agents[int(choice) - 1].name
         
         if Confirm.ask(f"Удалить агента '{agent_name}'?"):
             try:

@@ -2,11 +2,16 @@
 
 import pytest
 import asyncio
+import sys
+from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
 
-from src.mcp.manager import MCPManager, MCPServer, MCPServerStatus
-from src.mcp.client import MCPClient, MCPClientManager
-from src.core.settings import Settings, MCPServerConfig
+# Добавить src в путь
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+from mcp.manager import MCPManager, MCPServer, MCPServerStatus
+from mcp.client import MCPClient, MCPClientManager
+from core.settings import Settings, MCPServerConfig
 
 
 @pytest.fixture

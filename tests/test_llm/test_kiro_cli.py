@@ -2,8 +2,14 @@
 
 import pytest
 import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import patch, MagicMock
-from src.llm.kiro_cli import KiroCliProvider
+
+# Добавить src в путь
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+
+from llm.kiro_cli import KiroCliProvider
 
 
 class TestKiroCliProvider:
