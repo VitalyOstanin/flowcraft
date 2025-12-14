@@ -83,6 +83,24 @@ class SimpleInteractiveCLI:
         
         input("\nНажмите Enter для продолжения...")
 
+    def show_help(self):
+        """Показать справку"""
+        console.print("\n=== Справка FlowCraft ===", style="bold blue")
+        console.print("Доступные команды:")
+        console.print("• /help - показать эту справку")
+        console.print("• /clear - очистить экран")
+        console.print("\nВарианты использования:")
+        console.print("1. Введите задачу в поле 'Задача' для запуска workflow")
+        console.print("2. Выберите пункт меню для других действий:")
+        console.print("   - 1: Запустить workflow")
+        console.print("   - 2: Управление агентами") 
+        console.print("   - 3: Управление этапами workflow")
+        console.print("   - 4: Показать настройки")
+        console.print("   - 5: Прямой запрос к LLM (без workflow)")
+        console.print("   - 6: Режим команд (если доступен)")
+        console.print("   - 7: Выход")
+        input("\nНажмите Enter для продолжения...")
+
     def clear_screen(self):
         """Очистить экран"""
         os.system('clear' if os.name == 'posix' else 'cls')
@@ -99,8 +117,8 @@ class SimpleInteractiveCLI:
                 if action == "clear":
                     self.clear_screen()
                     continue
-                elif action == "task_processed":
-                    continue  # Задача обработана, показать меню снова
+                elif action == "task_processed" or action == "help_shown":
+                    continue  # Задача обработана или справка показана, показать меню снова
                 elif action == "1":
                     self.start_workflow()
                 elif action == "2":
@@ -165,6 +183,14 @@ class SimpleInteractiveCLI:
             return "clear"
         
         if task_input.strip():
+            # Проверить команды
+            if task_input.strip() == "/help":
+                self.show_help()
+                return "help_shown"
+            elif task_input.strip() == "/clear":
+                self.clear_screen()
+                return "clear"
+            
             # Обработать задачу
             asyncio.run(self.process_task(task_input.strip()))
             return "task_processed"
