@@ -23,7 +23,7 @@ from tools.search import SearchTools
 console = Console()
 
 @click.command()
-@click.option('--config', default='settings.yaml', help='Путь к файлу настроек')
+@click.option('--config', default='~/.flowcraft/settings.yaml', help='Путь к файлу настроек')
 @click.option('--debug', is_flag=True, help='Режим отладки')
 def main(config, debug):
     """FlowCraft - Мультиагентный AI CLI агент"""

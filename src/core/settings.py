@@ -37,8 +37,10 @@ class Settings(BaseModel):
 class SettingsManager:
     """Менеджер настроек"""
     
-    def __init__(self, config_path: str = "settings.yaml"):
-        self.config_path = Path(config_path)
+    def __init__(self, config_path: str = "~/.flowcraft/settings.yaml"):
+        self.config_path = Path(config_path).expanduser()
+        # Создать директорию ~/.flowcraft/ если не существует
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
         self.settings: Optional[Settings] = None
         self.load_settings()
     

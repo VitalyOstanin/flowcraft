@@ -67,7 +67,7 @@ python cli.py
 
 ### 3. Создание настроек
 
-При первом запуске будет создан файл `settings.yaml` на основе `settings.yaml.example`.
+При первом запуске будет создан файл `~/.flowcraft/settings.yaml` на основе `settings.yaml.example`.
 
 ## Структура проекта
 
@@ -95,7 +95,7 @@ flowcraft/
 
 ## Конфигурация
 
-### Основные настройки (settings.yaml)
+### Основные настройки (~/.flowcraft/settings.yaml)
 
 ```yaml
 language: ru

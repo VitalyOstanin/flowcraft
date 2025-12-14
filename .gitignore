@@ -1,0 +1,8 @@
+test_settings.yaml
+*.pyc
+__pycache__/
+.pytest_cache/
+.coverage
+.env
+.venv/
+venv/
