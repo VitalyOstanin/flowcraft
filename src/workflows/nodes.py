@@ -121,13 +121,17 @@ class AgentNode(BaseNode):
                  agent_role: str,
                  stage_config: Dict[str, Any],
                  agent_manager: AgentManager,
-                 is_last_stage: bool = False):
+                 is_last_stage: bool = False,
+                 mcp_manager=None,
+                 workflow_id: str = None):
         super().__init__(name, stage_config.get("description", ""))
         self.agent_role = agent_role
         self.stage_config = stage_config
         self.agent_manager = agent_manager
         self.skippable = stage_config.get("skippable", False)
         self.is_last_stage = is_last_stage
+        self.mcp_manager = mcp_manager
+        self.workflow_id = workflow_id or "direct"
     
     async def execute(self, state: WorkflowState) -> WorkflowState:
         """Выполнение задачи агентом."""
@@ -251,10 +255,27 @@ class AgentNode(BaseNode):
                                 state: WorkflowState) -> Dict[str, Any]:
         """Выполнение задачи агентом."""
         
-        # Пока что заглушка - в будущем здесь будет вызов LLM
         console.print(f"Агент {agent['name']} обрабатывает задачу...")
         
-        # Имитируем работу агента
+        # Проверяем, есть ли MCP серверы для этого stage
+        stage_config = self.stage_config or {}
+        mcp_servers = stage_config.get('mcp_servers', [])
+        
+        if 'youtrack-mcp' in mcp_servers and agent.get('role') == 'analyst':
+            # Выполняем реальный анализ активности через YouTrack MCP (прямое соединение)
+            try:
+                result = await self._execute_youtrack_analysis_direct(context)
+                return {
+                    "agent": agent["name"],
+                    "stage": self.name,
+                    "status": "completed", 
+                    "output": result,
+                    "context_used": context
+                }
+            except Exception as e:
+                console.print(f"Ошибка YouTrack анализа: {e}", style="red")
+        
+        # Заглушка для других случаев
         await asyncio.sleep(1)
         
         return {
@@ -264,6 +285,84 @@ class AgentNode(BaseNode):
             "output": f"Результат выполнения stage {self.name} агентом {agent['name']}",
             "context_used": context
         }
+    
+    async def _execute_youtrack_analysis_direct(self, context: Dict[str, Any]) -> str:
+        """Прямое выполнение анализа активности в YouTrack."""
+        try:
+            from datetime import datetime, timedelta
+            import json
+            from mcp import ClientSession, StdioServerParameters
+            from mcp.client.stdio import stdio_client
+            
+            # Период за последние 7 дней
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=7)
+            
+            # Получаем настройки YouTrack из конфигурации MCP
+            mcp_config = None
+            if hasattr(self.agent_manager, 'settings_manager'):
+                settings = self.agent_manager.settings_manager.settings
+                for server_config in settings.mcp_servers:
+                    if server_config.name == 'youtrack-mcp':
+                        mcp_config = server_config
+                        break
+            
+            if not mcp_config:
+                return "Конфигурация YouTrack MCP не найдена в настройках"
+            
+            server_params = StdioServerParameters(
+                command=mcp_config.command,
+                args=mcp_config.args,
+                env=mcp_config.env or {}
+            )
+            
+            async with stdio_client(server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    
+                    # Получаем пользователя
+                    user_result = await session.call_tool('user_current', {})
+                    user_data = json.loads(user_result.content[0].text)
+                    user_info = user_data.get('payload', {}).get('user', {})
+                    
+                    # Получаем work items
+                    workitems_result = await session.call_tool('workitems_list', {
+                        'startDate': start_date.strftime('%Y-%m-%d'),
+                        'endDate': end_date.strftime('%Y-%m-%d')
+                    })
+                    workitems_data = json.loads(workitems_result.content[0].text)
+                    workitems = workitems_data.get('payload', {}).get('items', [])
+                    
+                    # Формируем отчет
+                    if workitems:
+                        total_minutes = sum(item.get('duration', {}).get('minutes', 0) for item in workitems)
+                        total_hours = total_minutes / 60
+                        
+                        report = f"=== Анализ активности пользователя {user_info.get('name', 'N/A')} ===\n\n"
+                        report += f"Период: {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}\n"
+                        report += f"Найдено work items: {len(workitems)}\n"
+                        report += f"Общее время работы: {total_hours:.1f} часов ({total_minutes} минут)\n"
+                        report += f"Workflow: {self.workflow_id or 'direct'}\n\n"
+                        
+                        # Топ-5 задач по времени
+                        by_issue = {}
+                        for item in workitems:
+                            issue_id = item.get('issue', {}).get('idReadable', 'N/A')
+                            if issue_id not in by_issue:
+                                by_issue[issue_id] = {'minutes': 0}
+                            by_issue[issue_id]['minutes'] += item.get('duration', {}).get('minutes', 0)
+                        
+                        report += "Топ задач по времени:\n"
+                        for issue_id, data in sorted(by_issue.items(), key=lambda x: x[1]['minutes'], reverse=True)[:5]:
+                            hours = data['minutes'] / 60
+                            report += f"• {issue_id}: {hours:.1f}ч ({data['minutes']}м)\n"
+                        
+                        return report
+                    else:
+                        return f"Анализ активности пользователя {user_info.get('name', 'N/A')}: work items за последние 7 дней не найдены"
+                        
+        except Exception as e:
+            return f"Ошибка анализа активности: {str(e)}"
 
 
 class HumanInputNode(BaseNode):

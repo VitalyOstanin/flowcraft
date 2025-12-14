@@ -193,9 +193,9 @@ class WorkflowManager:
                     return False
             
             elif stage_type == "agent":
-                # Проверяем наличие ролей
-                roles = stage.get("roles", [])
-                if not roles:
+                # Проверяем наличие агента
+                agent = stage.get("agent")
+                if not agent:
                     return False
         
         return True

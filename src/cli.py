@@ -28,7 +28,7 @@ from core.interactive_cli import SimpleInteractiveCLI
 from tools.filesystem import FileSystemTools
 from tools.shell import ShellTools
 from tools.search import SearchTools
-from mcp.manager import MCPManager
+from mcp_integration.manager import MCPManager
 
 console = Console()
 
@@ -95,7 +95,8 @@ def main(config, debug):
         workflow_engine = WorkflowEngine(
             agent_manager=agent_manager,
             trust_manager=trust_manager,
-            checkpoint_dir=str(Path("~/.flowcraft/checkpoints").expanduser())
+            checkpoint_dir=str(Path("~/.flowcraft/checkpoints").expanduser()),
+            mcp_manager=mcp_manager
         )
         
         # Workflow manager с engine

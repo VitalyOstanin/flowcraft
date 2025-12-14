@@ -26,9 +26,11 @@ class WorkflowEngine:
     def __init__(self, 
                  agent_manager: AgentManager,
                  trust_manager: TrustManager,
-                 checkpoint_dir: Optional[str] = None):
+                 checkpoint_dir: Optional[str] = None,
+                 mcp_manager=None):
         self.agent_manager = agent_manager
         self.trust_manager = trust_manager
+        self.mcp_manager = mcp_manager
         self.subgraph_registry = get_registry()
         
         # Настройка checkpoints
@@ -49,9 +51,16 @@ class WorkflowEngine:
         """Выполнение workflow."""
         
         workflow_name = workflow_config.get("name", "unknown")
+        workflow_id = f"{workflow_name}_{asyncio.get_event_loop().time()}"
         
         console.print(f"Запуск workflow: {workflow_name}")
         console.print(f"Задача: {task_description}")
+        
+        # Запускаем MCP серверы для этого workflow (временно отключено из-за зависания)
+        # if self.mcp_manager:
+        #     mcp_servers = workflow_config.get('mcp_servers', [])
+        #     if mcp_servers:
+        #         await self.mcp_manager.start_workflow_servers(workflow_id, mcp_servers)
         
         try:
             # Создаем граф из конфигурации
@@ -117,6 +126,13 @@ class WorkflowEngine:
                 "completed_stages": [],
                 "failed_stages": []
             }
+        finally:
+            # Останавливаем MCP серверы после завершения workflow
+            if self.mcp_manager:
+                try:
+                    await self.mcp_manager.stop_workflow_servers(workflow_id)
+                except Exception as e:
+                    console.print(f"Ошибка остановки MCP серверов: {e}", style="yellow")
     
     async def _build_graph_from_config(self, workflow_config: Dict[str, Any]) -> Any:
         """Построение LangGraph из конфигурации workflow."""
@@ -189,21 +205,26 @@ class WorkflowEngine:
                                 stage_name: str):
         """Добавление обычного stage в граф."""
         
-        # Получаем роли для stage
+        # Получаем агента для stage (новый формат) или роли (старый формат)
+        agent = stage_config.get("agent")
         roles = stage_config.get("roles", [])
         
-        if not roles:
-            raise ValueError(f"Stage {stage_name}: не указаны роли")
-        
-        # Пока что используем первую роль (в будущем можно добавить логику выбора)
-        primary_role = roles[0] if isinstance(roles[0], str) else roles[0].get("name")
+        if agent:
+            # Новый формат с agent
+            primary_role = agent
+        elif roles:
+            # Старый формат с roles
+            primary_role = roles[0] if isinstance(roles[0], str) else roles[0].get("name")
+        else:
+            raise ValueError(f"Stage {stage_name}: не указан агент или роли")
         
         # Создаем узел агента
         agent_node = AgentNode(
             name=stage_name,
             agent_role=primary_role,
             stage_config=stage_config,
-            agent_manager=self.agent_manager
+            agent_manager=self.agent_manager,
+            mcp_manager=self.mcp_manager
         )
         
         graph.add_node(stage_name, agent_node)

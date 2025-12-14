@@ -263,10 +263,45 @@ class SimpleInteractiveCLI:
             console.print("Менеджер workflow не инициализирован", style="red")
             return
             
-        console.print(f"Запуск workflow: {self.current_workflow['name']}", style="cyan")
-        # Здесь должна быть логика выполнения workflow
-        # Пока заглушка
-        console.print("Выполнение workflow (в разработке)", style="yellow")
+        workflow_name = self.current_workflow['name']
+        console.print(f"Запуск workflow: {workflow_name}", style="cyan")
+        
+        try:
+            # Выполняем workflow через менеджер
+            result = await self.workflow_manager.execute_workflow(
+                workflow_name=workflow_name,
+                task_description=task
+            )
+            
+            # Обрабатываем результат
+            if result.get("success", False):
+                console.print("✓ Workflow выполнен успешно", style="green")
+                
+                completed = result.get("completed_stages", [])
+                if completed:
+                    console.print(f"Выполнено этапов: {len(completed)}", style="green")
+                    for stage in completed:
+                        console.print(f"  ✓ {stage}", style="dim green")
+                
+                # Показываем результат если есть
+                workflow_result = result.get("result")
+                if workflow_result:
+                    console.print("\nРезультат workflow:", style="bold")
+                    console.print(workflow_result)
+                    
+            else:
+                console.print("✗ Ошибка выполнения workflow", style="red")
+                error = result.get("error", "Неизвестная ошибка")
+                console.print(f"Ошибка: {error}", style="red")
+                
+                failed = result.get("failed_stages", [])
+                if failed:
+                    console.print(f"Неудачные этапы: {len(failed)}", style="red")
+                    for stage in failed:
+                        console.print(f"  ✗ {stage}", style="dim red")
+                        
+        except Exception as e:
+            console.print(f"✗ Критическая ошибка: {str(e)}", style="red")
     
     async def show_menu(self) -> str:
         """Показать меню управления"""

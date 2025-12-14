@@ -315,9 +315,11 @@ class CustomSubgraph(BaseSubgraph):
 - **Система динамических подграфов**
 - **LLM интеграция для workflow**
 - **Human-in-the-loop поддержка**
+- **Выполнение workflow через CLI** ✓
 - Интерактивный CLI
 - Базовые инструменты
 - LLM провайдер qwen3-coder-plus с OAuth аутентификацией
+- MCP интеграция с YouTrack
 
 ### Тестирование
 
