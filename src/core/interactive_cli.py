@@ -47,6 +47,13 @@ class SimpleInteractiveCLI:
         self.mcp_manager = mcp_manager
         self.current_workflow = None
         
+        # Автоматически выбрать default workflow при запуске
+        if workflow_manager:
+            workflows = workflow_manager.list_workflows()
+            default_workflow = next((w for w in workflows if w['name'] == 'default'), None)
+            if default_workflow:
+                self.current_workflow = default_workflow
+        
         # Инициализация обработчика команд
         if mcp_manager:
             from .commands import CommandHandler
@@ -101,6 +108,38 @@ class SimpleInteractiveCLI:
         console.print("   - 7: Выход")
         input("\nНажмите Enter для продолжения...")
 
+    def select_workflow(self):
+        """Выбрать workflow"""
+        if not self.workflow_manager:
+            console.print("Менеджер workflow не инициализирован", style="red")
+            return
+            
+        workflows = self.workflow_manager.list_workflows()
+        if not workflows:
+            console.print("Нет доступных workflow", style="yellow")
+            return
+            
+        console.print("\n=== Выбор Workflow ===", style="bold blue")
+        table = Table(title="Доступные Workflow")
+        table.add_column("№", style="cyan")
+        table.add_column("Название", style="magenta")
+        table.add_column("Описание", style="green")
+        table.add_column("Текущий", style="yellow")
+        
+        for i, workflow in enumerate(workflows, 1):
+            current_mark = "✓" if self.current_workflow and workflow['name'] == self.current_workflow['name'] else ""
+            table.add_row(str(i), workflow['name'], workflow['description'], current_mark)
+        
+        console.print(table)
+        
+        try:
+            choice = CustomPrompt.ask("Выберите workflow (номер)", choices=[str(i) for i in range(1, len(workflows) + 1)])
+            selected_workflow = workflows[int(choice) - 1]
+            self.current_workflow = selected_workflow
+            console.print(f"Выбран workflow: [bold green]{selected_workflow['name']}[/bold green]")
+        except (ValueError, IndexError):
+            console.print("Неверный выбор", style="red")
+
     def clear_screen(self):
         """Очистить экран"""
         os.system('clear' if os.name == 'posix' else 'cls')
@@ -122,20 +161,22 @@ class SimpleInteractiveCLI:
                 elif action == "1":
                     self.start_workflow()
                 elif action == "2":
-                    self.manage_agents()
+                    self.select_workflow()
                 elif action == "3":
-                    self.manage_workflow_stages()
+                    self.manage_agents()
                 elif action == "4":
-                    self.show_settings()
+                    self.manage_workflow_stages()
                 elif action == "5":
-                    asyncio.run(self.direct_llm_query())
+                    self.show_settings()
                 elif action == "6":
+                    asyncio.run(self.direct_llm_query())
+                elif action == "7":
                     if self.command_handler:
                         asyncio.run(self.command_mode())
                     else:
                         console.print("До свидания!", style="green")
                         break
-                elif action == "7":
+                elif action == "8":
                     console.print("До свидания!", style="green")
                     break
                 elif action == "clear":
@@ -157,6 +198,12 @@ class SimpleInteractiveCLI:
     def show_main_menu(self) -> str:
         """Показать главное меню с доступными workflow и полем ввода задачи"""
         console.print("\n" + "="*50)
+        
+        # Показать текущий выбранный workflow
+        if self.current_workflow:
+            console.print(f"Текущий workflow: [bold green]{self.current_workflow['name']}[/bold green] - {self.current_workflow['description']}")
+        else:
+            console.print("Workflow не выбран", style="yellow")
         
         # Показать доступные workflow сразу
         if self.workflow_manager:
@@ -197,18 +244,19 @@ class SimpleInteractiveCLI:
         
         console.print("\nГлавное меню FlowCraft", style="bold")
         console.print("1. Запустить workflow")
-        console.print("2. Управление агентами")
-        console.print("3. Управление этапами workflow")
-        console.print("4. Показать настройки")
-        console.print("5. Прямой запрос к LLM")
+        console.print("2. Сменить workflow")
+        console.print("3. Управление агентами")
+        console.print("4. Управление этапами workflow")
+        console.print("5. Показать настройки")
+        console.print("6. Прямой запрос к LLM")
         console.print("clear. Очистить экран")
         if self.command_handler:
-            console.print("6. Режим команд")
+            console.print("7. Режим команд")
+            console.print("8. Выход")
+            return CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "7", "8", "clear"])
+        else:
             console.print("7. Выход")
             return CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "7", "clear"])
-        else:
-            console.print("6. Выход")
-            return CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "clear"])
     
     async def process_task(self, task_description: str):
         """Обработать задачу пользователя с автоматическим выбором workflow"""
@@ -219,7 +267,12 @@ class SimpleInteractiveCLI:
         workflows = self.workflow_manager.list_workflows()
         selected_workflow = None
         
-        # Попытка выбора через LLM если есть workflow
+        # Использовать текущий выбранный workflow
+        if self.current_workflow:
+            selected_workflow = self.current_workflow['name']
+            console.print(f"Использование режима {selected_workflow} workflow")
+        
+        # Попытка выбора через LLM если есть workflow и не выбран текущий
         if workflows:
             try:
                 from llm.qwen_code import QwenCodeProvider
