@@ -430,7 +430,41 @@ class SimpleInteractiveCLI:
 
     def create_workflow(self):
         """Создать новый workflow"""
-        console.print("Создание workflow (в разработке)", style="yellow")
+        try:
+            name = Prompt.ask("Название workflow")
+            if not name:
+                console.print("Название не может быть пустым", style="red")
+                return
+                
+            description = Prompt.ask("Описание workflow")
+            
+            # Базовая конфигурация с минимальным stage
+            config = {
+                'roles': [
+                    {
+                        'name': 'developer',
+                        'prompt': 'Ты разработчик. Отвечай на русском.',
+                        'expensive_model': False
+                    }
+                ],
+                'stages': [
+                    {
+                        'name': 'initial_stage',
+                        'roles': ['developer'],
+                        'skippable': False,
+                        'description': 'Начальный этап workflow'
+                    }
+                ]
+            }
+            
+            # Создаем workflow
+            if self.workflow_manager.create_workflow(name, description, config):
+                console.print(f"Workflow '{name}' создан", style="green")
+            else:
+                console.print(f"Workflow '{name}' уже существует", style="red")
+                
+        except Exception as e:
+            console.print(f"Ошибка создания workflow: {e}", style="red")
 
     def list_workflows(self):
         """Показать список workflow"""
@@ -458,7 +492,42 @@ class SimpleInteractiveCLI:
 
     def delete_workflow(self):
         """Удалить workflow"""
-        console.print("Удаление workflow (в разработке)", style="yellow")
+        try:
+            workflows = self.workflow_manager.list_workflows()
+            if not workflows:
+                console.print("Нет доступных workflow", style="yellow")
+                return
+                
+            # Показываем список workflow
+            console.print("\nДоступные workflow:")
+            for i, workflow in enumerate(workflows, 1):
+                console.print(f"{i}. {workflow['name']} - {workflow['description']}")
+            
+            choice = Prompt.ask("Выберите номер workflow для удаления")
+            try:
+                index = int(choice) - 1
+                if 0 <= index < len(workflows):
+                    workflow_name = workflows[index]['name']
+                    
+                    # Защита от удаления default workflow
+                    if workflow_name == 'default':
+                        console.print("Нельзя удалить системный workflow 'default'", style="red")
+                        return
+                    
+                    if Confirm.ask(f"Удалить workflow '{workflow_name}'?"):
+                        if self.workflow_manager.delete_workflow(workflow_name):
+                            console.print(f"Workflow '{workflow_name}' удален", style="green")
+                        else:
+                            console.print(f"Ошибка удаления workflow '{workflow_name}'", style="red")
+                else:
+                    console.print("Неверный номер", style="red")
+            except ValueError:
+                console.print("Введите корректный номер", style="red")
+                
+        except Exception as e:
+            console.print(f"Ошибка удаления workflow: {e}", style="red")
+
+    def manage_agents(self):
         """Управление агентами"""
         while True:
             console.print("\n" + "-"*30)
