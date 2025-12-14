@@ -11,13 +11,14 @@ from dataclasses import dataclass
 
 class LLMConfig(BaseModel):
     """Конфигурация LLM"""
-    cheap_model: str = "qwen-code"
+    cheap_model: str = "qwen3-coder-plus"
     expensive_model: str = "kiro-cli"
     expensive_stages: List[str] = Field(default_factory=lambda: [
         "security_review", 
         "architecture_design", 
         "complex_debugging"
     ])
+    qwen_oauth_path: Optional[str] = None  # Путь к OAuth credentials для qwen-code
 
 class MCPServerConfig(BaseModel):
     """Конфигурация MCP сервера"""

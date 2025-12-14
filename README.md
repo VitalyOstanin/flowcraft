@@ -32,6 +32,7 @@ FlowCraft - это мультиагентный AI CLI агент для вып�
 
 - Python 3.11+
 - uv (рекомендуется) или pip
+- Node.js (для qwen-code CLI)
 
 ### Установка зависимостей
 
@@ -42,6 +43,17 @@ uv pip install -r requirements.txt
 # Альтернативно - с pip
 pip install -r requirements.txt
 ```
+
+### Настройка qwen3-coder-plus
+
+Для использования модели qwen3-coder-plus необходимо установить CLI утилиту:
+
+```bash
+# Установка qwen-code CLI
+npm install -g @qwen-code/qwen-code@latest
+```
+
+OAuth credentials создаются CLI утилитой qwen-code и сохраняются в `~/.qwen/oauth_creds.json`. Проект автоматически обновляет истекшие токены при необходимости.
 
 ### Дополнительные инструменты (рекомендуется)
 
@@ -101,11 +113,13 @@ flowcraft/
 language: ru
 
 llm:
-  cheap_model: qwen-code
+  cheap_model: qwen3-coder-plus
   expensive_model: kiro-cli
   expensive_stages:
     - security_review
     - architecture_design
+  # Путь к OAuth credentials для qwen-code (опционально)
+  # qwen_oauth_path: ~/.qwen/oauth_creds.json
 
 mcp_servers: []
 
@@ -187,12 +201,14 @@ python cli.py
 - Базовая система workflow
 - Интерактивный CLI
 - Базовые инструменты
+- LLM провайдер qwen3-coder-plus с OAuth аутентификацией
+- LLM провайдер qwen3-coder-plus с OAuth аутентификацией
 
 ### TODO
 
 Сложные компоненты для будущей реализации:
 - MCP интеграция
-- LLM провайдеры (qwen-code, kiro-cli)
+- LLM провайдеры (kiro-cli, дополнительные провайдеры)
 - LangGraph workflow с состояниями
 - Система команд управления
 - Автодополнение CLI
@@ -200,11 +216,20 @@ python cli.py
 ### Тестирование
 
 ```bash
-# Базовый тест функциональности
-python test_cli.py
+# Установка зависимостей для тестирования
+pip install pytest pytest-asyncio
 
-# Запуск с отладкой
-python cli.py --debug
+# Запуск всех тестов
+pytest
+
+# Запуск тестов LLM
+pytest tests/test_llm/
+
+# Быстрый тест qwen3-coder-plus
+python tests/test_llm/test_qwen_simple.py
+
+# Полный интеграционный тест
+python tests/test_llm/test_qwen_integration.py
 ```
 
 ### Добавление нового workflow
@@ -221,6 +246,6 @@ agent_manager.create_agent(
     role="developer", 
     description="Мой агент",
     capabilities=["coding"],
-    llm_model="qwen-code"
+    llm_model="qwen3-coder-plus"
 )
 ```

@@ -1,12 +1,14 @@
 language: ru
 
 llm:
-  cheap_model: qwen-code
+  cheap_model: qwen3-coder-plus
   expensive_model: kiro-cli
   expensive_stages:
     - security_review
     - architecture_design
     - complex_debugging
+  # Путь к OAuth credentials для qwen-code (опционально)
+  # qwen_oauth_path: ~/.qwen/oauth_creds.json
 
 mcp_servers:
   - name: filesystem
