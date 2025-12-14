@@ -31,11 +31,49 @@ from mcp.manager import MCPManager
 
 console = Console()
 
+def handle_piped_input(input_text: str, config: str, debug: bool):
+    """Обработка входящих данных через pipe с помощью qwen LLM"""
+    try:
+        from core.settings import SettingsManager
+        from llm.qwen_code import QwenCodeProvider
+        from llm.base import LLMMessage
+        import asyncio
+        
+        # Инициализация настроек
+        settings_manager = SettingsManager(config)
+        
+        # Создание qwen провайдера
+        qwen_provider = QwenCodeProvider()
+        
+        # Выполнение запроса
+        async def process_request():
+            messages = [LLMMessage(role="user", content=input_text)]
+            response = await qwen_provider.chat_completion(messages)
+            return response.content
+        
+        # Запуск асинхронной обработки
+        result = asyncio.run(process_request())
+        console.print(result)
+        
+    except Exception as e:
+        console.print(f"Ошибка обработки запроса: {e}", style="red")
+        if debug:
+            import traceback
+            console.print(traceback.format_exc())
+        sys.exit(1)
+
 @click.command()
 @click.option('--config', default='~/.flowcraft/settings.yaml', help='Путь к файлу настроек')
 @click.option('--debug', is_flag=True, help='Режим отладки')
 def main(config, debug):
     """FlowCraft - Мультиагентный AI CLI агент"""
+    
+    # Проверяем наличие данных в stdin (pipe)
+    if not sys.stdin.isatty():
+        input_text = sys.stdin.read().strip()
+        if input_text:
+            return handle_piped_input(input_text, config, debug)
+    
     try:
         console.print("Инициализация FlowCraft...", style="blue")
         

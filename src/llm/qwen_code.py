@@ -54,7 +54,18 @@ class QwenCodeProvider(BaseLLMProvider):
             raise ValueError("Refresh token не найден в credentials")
         
         import asyncio
-        return asyncio.run(self._refresh_token_async(credentials))
+        
+        # Проверяем, есть ли уже запущенный event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # Если loop запущен, создаем задачу
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self._refresh_token_async(credentials))
+                return future.result()
+        except RuntimeError:
+            # Нет запущенного loop, можем использовать asyncio.run
+            return asyncio.run(self._refresh_token_async(credentials))
     
     async def _refresh_token_async(self, credentials: Dict[str, Any]) -> Dict[str, Any]:
         """Асинхронно обновить access token."""
@@ -79,10 +90,26 @@ class QwenCodeProvider(BaseLLMProvider):
             )
             
             if not response.is_success:
-                error_text = await response.aread()
+                # Обработка 400 ошибки - refresh token истек
+                if response.status_code == 400:
+                    # Удаляем credentials файл
+                    creds_path = Path(self.oauth_path)
+                    if creds_path.exists():
+                        creds_path.unlink()
+                    raise ValueError("Refresh token expired. Please re-authenticate using: qwen-code auth login")
+                
+                error_text = response.text
                 raise ValueError(f"Ошибка обновления токена: {response.status_code} - {error_text}")
             
-            token_data = response.json()
+            # Проверяем, что ответ не пустой
+            response_text = response.text
+            if not response_text.strip():
+                raise ValueError("Сервер вернул пустой ответ")
+            
+            try:
+                token_data = response.json()
+            except Exception as e:
+                raise ValueError(f"Ошибка парсинга JSON ответа: {e}. Ответ: {response_text}")
             
             if "error" in token_data:
                 raise ValueError(f"Ошибка обновления токена: {token_data['error']}")
@@ -162,9 +189,19 @@ class QwenCodeProvider(BaseLLMProvider):
                 result = response.json()
                 
                 content = result["choices"][0]["message"]["content"]
-                usage = result.get("usage")
+                usage_raw = result.get("usage", {})
                 
-                return LLMResponse(content=content, usage=usage)
+                # Преобразуем usage в простой формат Dict[str, int]
+                usage = {}
+                if usage_raw:
+                    if "prompt_tokens" in usage_raw:
+                        usage["prompt_tokens"] = int(usage_raw["prompt_tokens"])
+                    if "completion_tokens" in usage_raw:
+                        usage["completion_tokens"] = int(usage_raw["completion_tokens"])
+                    if "total_tokens" in usage_raw:
+                        usage["total_tokens"] = int(usage_raw["total_tokens"])
+                
+                return LLMResponse(content=content, usage=usage if usage else None)
                 
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 401:
