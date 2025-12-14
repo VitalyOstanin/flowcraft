@@ -190,7 +190,7 @@ class SimpleInteractiveCLI:
                         self.clear_screen()
                         continue
                     elif task_input.strip() == "/menu":
-                        action = self.show_menu()
+                        action = await self.show_menu()
                         if action == "exit":
                             break
                         continue
@@ -199,7 +199,7 @@ class SimpleInteractiveCLI:
                     await self.process_task_with_workflow(task_input.strip())
                 else:
                     # Если пустой ввод, показать меню
-                    action = self.show_menu()
+                    action = await self.show_menu()
                     if action == "exit":
                         break
                     
@@ -268,18 +268,19 @@ class SimpleInteractiveCLI:
         # Пока заглушка
         console.print("Выполнение workflow (в разработке)", style="yellow")
     
-    def show_menu(self) -> str:
+    async def show_menu(self) -> str:
         """Показать меню управления"""
         console.print("\n=== Меню FlowCraft ===", style="bold blue")
         console.print("1. Сменить workflow")
         console.print("2. Управление workflow")
         console.print("3. Управление агентами")
-        console.print("4. Показать настройки")
-        console.print("5. Выход")
+        console.print("4. Управление MCP серверами")
+        console.print("5. Показать настройки")
+        console.print("6. Выход")
         console.print("ESC. Вернуться к вводу задач")
         
         try:
-            sys.stdout.write("Выберите действие [1/2/3/4/5]: ")
+            sys.stdout.write("Выберите действие [1/2/3/4/5/6]: ")
             sys.stdout.flush()
             choice = getch()
             
@@ -289,7 +290,7 @@ class SimpleInteractiveCLI:
                 return "continue"
                 
             choice = choice.strip()
-            if choice not in ["1", "2", "3", "4", "5"]:
+            if choice not in ["1", "2", "3", "4", "5", "6"]:
                 console.print("\nНеверный выбор", style="red")
                 return "continue"
         except KeyboardInterrupt:
@@ -307,11 +308,144 @@ class SimpleInteractiveCLI:
         elif choice == "3":
             self.manage_agents()
         elif choice == "4":
-            self.show_settings()
+            await self.manage_mcp_servers()
         elif choice == "5":
+            self.show_settings()
+        elif choice == "6":
             return "exit"
         
-        return "continue"
+    async def manage_mcp_servers(self):
+        """Управление MCP серверами"""
+        while True:
+            console.print("\n=== Управление MCP серверами ===", style="bold blue")
+            
+            # Показать текущие серверы
+            servers = self.settings_manager.settings.mcp_servers
+            if servers:
+                table = Table(title="MCP Серверы")
+                table.add_column("Название", style="cyan")
+                table.add_column("Команда", style="green")
+                table.add_column("Статус", style="yellow")
+                
+                for server in servers:
+                    status = "Отключен" if server.disabled else "Включен"
+                    table.add_row(server.name, server.command, status)
+                
+                console.print(table)
+            else:
+                console.print("MCP серверы не настроены", style="yellow")
+            
+            console.print("\n1. Добавить MCP сервер")
+            console.print("2. Удалить MCP сервер")
+            console.print("3. Включить/отключить MCP сервер")
+            console.print("4. Перезапустить MCP сервер")
+            console.print("5. Назад")
+            
+            choice = CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5"])
+            
+            if choice == "1":
+                self._add_mcp_server()
+            elif choice == "2":
+                self._remove_mcp_server()
+            elif choice == "3":
+                self._toggle_mcp_server()
+            elif choice == "4":
+                await self._restart_mcp_server()
+            elif choice == "5":
+                break
+
+    def _add_mcp_server(self):
+        """Добавить MCP сервер"""
+        console.print("\n=== Добавление MCP сервера ===", style="bold green")
+        
+        name = CustomPrompt.ask("Название сервера")
+        if not name:
+            return
+        
+        command = CustomPrompt.ask("Команда запуска")
+        if not command:
+            return
+        
+        args_input = CustomPrompt.ask("Аргументы (через пробел)", default="")
+        args = args_input.split() if args_input else []
+        
+        env = {}
+        console.print("Переменные окружения (пустое название для завершения):")
+        while True:
+            env_name = CustomPrompt.ask("Название переменной", default="")
+            if not env_name:
+                break
+            env_value = CustomPrompt.ask(f"Значение для {env_name}")
+            env[env_name] = env_value
+        
+        try:
+            self.settings_manager.add_mcp_server(name, command, args, env)
+            console.print(f"MCP сервер '{name}' добавлен", style="green")
+        except Exception as e:
+            console.print(f"Ошибка добавления сервера: {e}", style="red")
+
+    def _remove_mcp_server(self):
+        """Удалить MCP сервер"""
+        servers = self.settings_manager.settings.mcp_servers
+        if not servers:
+            console.print("Нет серверов для удаления", style="yellow")
+            return
+        
+        server_names = [s.name for s in servers]
+        name = CustomPrompt.ask("Название сервера для удаления", choices=server_names)
+        
+        if self.settings_manager.remove_mcp_server(name):
+            console.print(f"MCP сервер '{name}' удален", style="green")
+        else:
+            console.print(f"Ошибка удаления сервера '{name}'", style="red")
+
+    def _toggle_mcp_server(self):
+        """Включить/отключить MCP сервер"""
+        servers = self.settings_manager.settings.mcp_servers
+        if not servers:
+            console.print("Нет серверов для управления", style="yellow")
+            return
+        
+        server_names = [s.name for s in servers]
+        name = CustomPrompt.ask("Название сервера", choices=server_names)
+        
+        # Найти сервер и переключить статус
+        for server in servers:
+            if server.name == name:
+                server.disabled = not server.disabled
+                status = "отключен" if server.disabled else "включен"
+                console.print(f"MCP сервер '{name}' {status}", style="green")
+                self.settings_manager._save_mcp_servers()
+                break
+
+    async def _restart_mcp_server(self):
+        """Перезапустить MCP сервер"""
+        if not self.mcp_manager:
+            console.print("MCP менеджер недоступен", style="red")
+            return
+        
+        servers = self.settings_manager.settings.mcp_servers
+        active_servers = [s.name for s in servers if not s.disabled]
+        
+        if not active_servers:
+            console.print("Нет активных серверов для перезапуска", style="yellow")
+            return
+        
+        name = CustomPrompt.ask("Название сервера для перезапуска", choices=active_servers)
+        
+        try:
+            # Остановить сервер если запущен
+            if name in self.mcp_manager.active_servers:
+                self.mcp_manager.active_servers[name].stop()
+                del self.mcp_manager.active_servers[name]
+            
+            # Запустить заново
+            if await self.mcp_manager.start_server(name):
+                console.print(f"MCP сервер '{name}' перезапущен", style="green")
+            else:
+                console.print(f"Ошибка перезапуска сервера '{name}'", style="red")
+        except Exception as e:
+            console.print(f"Ошибка перезапуска: {e}", style="red")
 
     async def command_mode(self):
         """Режим команд"""

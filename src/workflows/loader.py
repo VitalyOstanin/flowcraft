@@ -117,8 +117,8 @@ class WorkflowLoader:
                 console.print(f"Stage {i} должен содержать поле 'name'", style="red")
                 return False
             
-            if "roles" not in stage:
-                console.print(f"Stage {i} должен содержать поле 'roles'", style="red")
+            if "agent" not in stage:
+                console.print(f"Stage {i} должен содержать поле 'agent'", style="red")
                 return False
         
         return True
@@ -133,9 +133,9 @@ class WorkflowLoader:
             "name": config.get("name", workflow_name),
             "description": config.get("description", ""),
             "stages_count": len(config.get("stages", [])),
-            "roles": list(set(
-                role for stage in config.get("stages", [])
-                for role in stage.get("roles", [])
+            "agents": list(set(
+                stage.get("agent") for stage in config.get("stages", [])
+                if stage.get("agent")
             )),
             "mcp_servers": config.get("mcp_servers", [])
         }

@@ -1,0 +1,13 @@
+# Конфигурация MCP серверов для FlowCraft
+# Скопируйте этот файл в ~/.flowcraft/mcp.yaml и настройте под ваши нужды
+
+mcp_servers:
+  youtrack-mcp:
+    command: node
+    args:
+      - "/path/to/youtrack-mcp/dist/index.js"
+    env:
+      YOUTRACK_TOKEN: "your_token_here"
+      YOUTRACK_DEFAULT_PROJECT: "PROJ"
+      YOUTRACK_URL: "https://your-youtrack.example.com"
+    disabled: false
