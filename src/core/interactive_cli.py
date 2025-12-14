@@ -58,6 +58,31 @@ class SimpleInteractiveCLI:
         else:
             self.command_handler = None
     
+    async def direct_llm_query(self):
+        """Прямой запрос к LLM без workflow"""
+        console.print("\n=== Прямой запрос к LLM ===", style="bold blue")
+        
+        query = CustomPrompt.ask("Введите ваш запрос")
+        if not query.strip():
+            return
+            
+        try:
+            from llm.qwen_code import QwenCodeProvider
+            from llm.base import LLMMessage
+            
+            console.print("Обработка запроса...", style="yellow")
+            
+            qwen_provider = QwenCodeProvider()
+            messages = [LLMMessage(role="user", content=query)]
+            response = await qwen_provider.chat_completion(messages)
+            
+            console.print(f"\n{response.content}", style="green")
+            
+        except Exception as e:
+            console.print(f"Ошибка: {e}", style="red")
+        
+        input("\nНажмите Enter для продолжения...")
+
     def clear_screen(self):
         """Очистить экран"""
         os.system('clear' if os.name == 'posix' else 'cls')
@@ -85,11 +110,14 @@ class SimpleInteractiveCLI:
                 elif action == "4":
                     self.show_settings()
                 elif action == "5":
+                    asyncio.run(self.direct_llm_query())
+                elif action == "6":
                     if self.command_handler:
                         asyncio.run(self.command_mode())
                     else:
-                        console.print("Команды недоступны (MCP менеджер не инициализирован)", style="yellow")
-                elif action == "6":
+                        console.print("До свидания!", style="green")
+                        break
+                elif action == "7":
                     console.print("До свидания!", style="green")
                     break
                 elif action == "clear":
@@ -146,14 +174,15 @@ class SimpleInteractiveCLI:
         console.print("2. Управление агентами")
         console.print("3. Управление этапами workflow")
         console.print("4. Показать настройки")
+        console.print("5. Прямой запрос к LLM")
         console.print("clear. Очистить экран")
         if self.command_handler:
-            console.print("5. Режим команд")
+            console.print("6. Режим команд")
+            console.print("7. Выход")
+            return CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "7", "clear"])
+        else:
             console.print("6. Выход")
             return CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "clear"])
-        else:
-            console.print("5. Выход")
-            return CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "clear"])
     
     async def process_task(self, task_description: str):
         """Обработать задачу пользователя с автоматическим выбором workflow"""
