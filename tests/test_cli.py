@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 # Добавить src в путь для импортов
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from rich.console import Console
 from core.settings import SettingsManager

@@ -1,9 +1,8 @@
 """Интеграция LLM провайдеров с системой агентов."""
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any, Iterator
 from ..core.settings import SettingsManager
-from .factory import LLMProviderFactory
-from .base import BaseLLMProvider, LLMMessage, LLMResponse
+from .router import LLMRouter
 
 
 class LLMIntegration:
@@ -11,109 +10,105 @@ class LLMIntegration:
     
     def __init__(self, settings_manager: SettingsManager):
         self.settings_manager = settings_manager
-        self._cheap_provider: Optional[BaseLLMProvider] = None
-        self._expensive_provider: Optional[BaseLLMProvider] = None
+        self._router: Optional[LLMRouter] = None
     
-    def _get_cheap_provider(self) -> BaseLLMProvider:
-        """Получить дешевый провайдер."""
-        if not self._cheap_provider:
+    def _get_router(self) -> LLMRouter:
+        """Получить LLM роутер."""
+        if not self._router:
             settings = self.settings_manager.settings
-            model_name = settings.llm.cheap_model
-            
-            # Определить провайдер по имени модели
-            if "qwen3-coder" in model_name or "qwen-coder" in model_name:
-                provider_name = "qwen-code"
-                kwargs = {
-                    "model_name": model_name,
-                    "oauth_path": settings.llm.qwen_oauth_path
-                }
-            else:
-                raise ValueError(f"Неподдерживаемая модель: {model_name}")
-            
-            self._cheap_provider = LLMProviderFactory.create_provider(provider_name, **kwargs)
-        
-        return self._cheap_provider
+            self._router = LLMRouter(
+                cheap_model=settings.llm.cheap_model,
+                expensive_model=settings.llm.expensive_model,
+                expensive_stages=settings.llm.expensive_stages
+            )
+        return self._router
     
-    def _get_expensive_provider(self) -> BaseLLMProvider:
-        """Получить дорогой провайдер."""
-        if not self._expensive_provider:
-            settings = self.settings_manager.settings
-            model_name = settings.llm.expensive_model
-            
-            # Пока поддерживаем только kiro-cli как заглушку
-            if model_name == "kiro-cli":
-                # Используем qwen-code как fallback
-                provider_name = "qwen-code"
-                kwargs = {
-                    "model_name": "qwen3-coder-plus",
-                    "oauth_path": settings.llm.qwen_oauth_path
-                }
-            else:
-                raise ValueError(f"Неподдерживаемая дорогая модель: {model_name}")
-            
-            self._expensive_provider = LLMProviderFactory.create_provider(provider_name, **kwargs)
-        
-        return self._expensive_provider
-    
-    def should_use_expensive_model(self, stage_name: str) -> bool:
-        """Определить, нужно ли использовать дорогую модель для этапа."""
-        settings = self.settings_manager.settings
-        return stage_name in settings.llm.expensive_stages
-    
-    async def chat_completion(
+    def chat_completion(
         self,
-        messages: List[LLMMessage],
-        stage_name: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 2000,
+        messages: List[Dict[str, str]],
+        stage: Optional[str] = None,
+        force_expensive: bool = False,
         **kwargs
-    ) -> LLMResponse:
-        """Выполнить chat completion с автоматическим выбором модели."""
-        if stage_name and self.should_use_expensive_model(stage_name):
-            provider = self._get_expensive_provider()
-        else:
-            provider = self._get_cheap_provider()
+    ) -> Dict[str, Any]:
+        """
+        Выполнить chat completion с автоматическим выбором модели.
         
-        return await provider.chat_completion(
+        Args:
+            messages: Список сообщений в формате OpenAI
+            stage: Текущий этап workflow
+            force_expensive: Принудительно использовать дорогую модель
+            **kwargs: Дополнительные параметры
+            
+        Returns:
+            Ответ в формате OpenAI API
+        """
+        router = self._get_router()
+        return router.chat_completion(
             messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            stage=stage,
+            force_expensive=force_expensive,
             **kwargs
         )
     
-    async def stream_completion(
+    def stream_completion(
         self,
-        messages: List[LLMMessage],
-        stage_name: Optional[str] = None,
-        temperature: float = 0.7,
-        max_tokens: int = 2000,
+        messages: List[Dict[str, str]],
+        stage: Optional[str] = None,
+        force_expensive: bool = False,
         **kwargs
-    ):
-        """Выполнить streaming completion с автоматическим выбором модели."""
-        if stage_name and self.should_use_expensive_model(stage_name):
-            provider = self._get_expensive_provider()
-        else:
-            provider = self._get_cheap_provider()
+    ) -> Iterator[Dict[str, Any]]:
+        """
+        Выполнить streaming completion с автоматическим выбором модели.
         
-        async for chunk in provider.stream_completion(
+        Args:
+            messages: Список сообщений в формате OpenAI
+            stage: Текущий этап workflow
+            force_expensive: Принудительно использовать дорогую модель
+            **kwargs: Дополнительные параметры
+            
+        Yields:
+            Чанки ответа в формате OpenAI API
+        """
+        router = self._get_router()
+        yield from router.stream_completion(
             messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            stage=stage,
+            force_expensive=force_expensive,
             **kwargs
-        ):
-            yield chunk
+        )
     
-    def get_current_model_info(self, stage_name: Optional[str] = None) -> dict:
-        """Получить информацию о текущей модели."""
-        if stage_name and self.should_use_expensive_model(stage_name):
-            provider = self._get_expensive_provider()
-            model_type = "expensive"
-        else:
-            provider = self._get_cheap_provider()
+    def get_current_model_info(
+        self,
+        messages: List[Dict[str, str]],
+        stage: Optional[str] = None,
+        force_expensive: bool = False
+    ) -> Dict[str, str]:
+        """
+        Получить информацию о модели, которая будет использована.
+        
+        Args:
+            messages: Список сообщений
+            stage: Текущий этап workflow
+            force_expensive: Принудительно использовать дорогую модель
+            
+        Returns:
+            Информация о модели
+        """
+        router = self._get_router()
+        provider_name = router.get_current_provider_name(
+            messages=messages,
+            stage=stage,
+            force_expensive=force_expensive
+        )
+        
+        settings = self.settings_manager.settings
+        if provider_name == settings.llm.cheap_model:
             model_type = "cheap"
+        else:
+            model_type = "expensive"
         
         return {
-            "provider": provider.provider_name,
-            "model": provider.model_name,
-            "type": model_type
+            "provider": provider_name,
+            "type": model_type,
+            "stage": stage or "unknown"
         }

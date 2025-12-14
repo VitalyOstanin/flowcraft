@@ -22,6 +22,7 @@ class QwenCodeProvider(BaseLLMProvider):
         super().__init__(model_name, **kwargs)
         self.oauth_path = oauth_path or os.path.expanduser("~/.qwen/oauth_creds.json")
         self._credentials: Optional[Dict[str, Any]] = None
+        self.name = "qwen-code"  # Добавляем атрибут name для совместимости
     
     @property
     def provider_name(self) -> str:

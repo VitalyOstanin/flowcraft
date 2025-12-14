@@ -3,6 +3,7 @@
 from typing import Dict, Type, Any
 from .base import BaseLLMProvider
 from .qwen_code import QwenCodeProvider
+from .kiro_cli import KiroCliProvider
 
 
 class LLMProviderFactory:
@@ -10,6 +11,7 @@ class LLMProviderFactory:
     
     _providers: Dict[str, Type[BaseLLMProvider]] = {
         "qwen-code": QwenCodeProvider,
+        "kiro-cli": KiroCliProvider,
     }
     
     @classmethod
