@@ -3,6 +3,7 @@
 import asyncio
 import sys
 import os
+import pytest
 
 # Добавляем src в путь
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
@@ -10,12 +11,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 from workflows.manager import WorkflowManager
 from core.settings import Settings
 
+@pytest.mark.asyncio
 async def test_default_workflow():
     """Тест default workflow."""
     
     print("Инициализация...")
     settings = Settings()
-    workflow_manager = WorkflowManager(settings)
+    workflow_manager = WorkflowManager(settings.workflows_dir)
     
     print("Загрузка workflow...")
     workflows = workflow_manager.list_workflows()

@@ -3,7 +3,7 @@
 """
 
 from typing import Dict, Any, List, Optional, TypedDict, Annotated
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langgraph.graph.message import add_messages
 
@@ -11,16 +11,14 @@ from langgraph.graph.message import add_messages
 class AgentState(BaseModel):
     """Состояние агента в workflow."""
     
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    
     name: str
     role: str
     current_task: Optional[str] = None
     capabilities: List[str] = Field(default_factory=list)
     memory: Dict[str, Any] = Field(default_factory=dict)
     llm_model: str = "qwen3-coder-plus"
-    
-    class Config:
-        # Разрешаем произвольные типы для сериализации
-        arbitrary_types_allowed = True
 
 
 class WorkflowState(TypedDict):

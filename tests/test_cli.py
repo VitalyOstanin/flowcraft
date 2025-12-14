@@ -72,9 +72,9 @@ def test_basic_functionality():
         console.print(f"Ошибка в тестах: {e}", style="red")
         import traceback
         console.print(traceback.format_exc())
-        return False
+        assert False, "Тест не должен был завершиться с ошибкой"
     
-    return True
+    assert True  # Тест прошел успешно
 
 if __name__ == "__main__":
     success = test_basic_functionality()

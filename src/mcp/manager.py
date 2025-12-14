@@ -45,10 +45,10 @@ class MCPManager:
         for server_config in self.settings.mcp_servers:
             server = MCPServer(
                 name=server_config.name,
-                command=server_config.command,
-                cwd=getattr(server_config, 'cwd', None),
-                env=getattr(server_config, 'env', None),
-                enabled_for_workflows=getattr(server_config, 'enabled_for_workflows', [])
+                command=[server_config.command] + server_config.args,
+                cwd=server_config.cwd,
+                env=server_config.env,
+                enabled_for_workflows=server_config.enabled_for_workflows
             )
             self.servers[server.name] = server
 

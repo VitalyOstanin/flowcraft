@@ -49,7 +49,7 @@ class BaseSubgraph(ABC):
         context = state["context"]
         
         for req in requirements:
-            if req not in context.stage_outputs and req not in context.user_inputs:
+            if req not in context.get("stage_outputs", {}) and req not in context.get("user_inputs", {}):
                 return False
         
         return True

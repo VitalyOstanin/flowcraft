@@ -45,7 +45,7 @@ def test_clear_screen():
         console.print(f"Строка {i}")
     
     console.print("\nСейчас будет очистка экрана...")
-    input("Нажмите Enter для продолжения...")
+    # input("Нажмите Enter для продолжения...")  # Убрано для автотестов
     
     # Очищаем экран
     cli.clear_screen()

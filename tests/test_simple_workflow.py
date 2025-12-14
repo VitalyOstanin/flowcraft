@@ -3,10 +3,12 @@
 import asyncio
 import sys
 import os
+import pytest
 
 # Добавляем src в путь
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
+@pytest.mark.asyncio
 async def test_workflow():
     """Простой тест workflow."""
     

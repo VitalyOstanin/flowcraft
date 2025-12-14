@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch, AsyncMock
 
 from src.mcp.manager import MCPManager, MCPServer, MCPServerStatus
 from src.mcp.client import MCPClient, MCPClientManager
-from src.core.settings import Settings
+from src.core.settings import Settings, MCPServerConfig
 
 
 @pytest.fixture
@@ -14,11 +14,14 @@ def mock_settings():
     """Мок настроек."""
     settings = Mock(spec=Settings)
     settings.mcp_servers = [
-        {
-            "name": "test_server",
-            "command": ["python", "-m", "test_server"],
-            "enabled_for_workflows": ["bug-fix"]
-        }
+        MCPServerConfig(
+            name="test_server",
+            command="python",
+            args=["-m", "test_server"],
+            env={"TEST_VAR": "test_value"},
+            cwd="/tmp",
+            enabled_for_workflows=["bug-fix"]
+        )
     ]
     return settings
 
@@ -38,6 +41,8 @@ class TestMCPManager:
         server = mcp_manager.servers["test_server"]
         assert server.name == "test_server"
         assert server.command == ["python", "-m", "test_server"]
+        assert server.env == {"TEST_VAR": "test_value"}
+        assert server.cwd == "/tmp"
         assert "bug-fix" in server.enabled_for_workflows
 
     @pytest.mark.asyncio

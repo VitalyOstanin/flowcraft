@@ -7,7 +7,7 @@ import asyncio
 from unittest.mock import Mock, AsyncMock
 from pathlib import Path
 
-from src.workflows.state import WorkflowState, WorkflowContext, AgentState, create_initial_state
+from src.workflows.state import WorkflowState, AgentState, create_initial_state
 from src.workflows.nodes import StartNode, EndNode, AgentNode
 from src.workflows.engine import WorkflowEngine
 from src.workflows.subgraphs.common import CodeAnalysisSubgraph
@@ -25,8 +25,8 @@ class TestWorkflowState:
             workflow_name="test_workflow"
         )
         
-        assert state["context"].task_description == "Тестовая задача"
-        assert state["context"].metadata["workflow_name"] == "test_workflow"
+        assert state["context"]["task_description"] == "Тестовая задача"
+        assert state["context"]["metadata"]["workflow_name"] == "test_workflow"
         assert state["current_node"] == "start"
         assert not state["finished"]
         assert len(state["messages"]) == 1
@@ -34,15 +34,17 @@ class TestWorkflowState:
     def test_workflow_context(self):
         """Тест контекста workflow."""
         
-        context = WorkflowContext(
-            task_description="Тест",
-            current_stage="test_stage"
-        )
+        context = {
+            "task_description": "Тест",
+            "current_stage": "test_stage",
+            "completed_stages": [],
+            "stage_outputs": {}
+        }
         
-        assert context.task_description == "Тест"
-        assert context.current_stage == "test_stage"
-        assert context.completed_stages == []
-        assert context.stage_outputs == {}
+        assert context["task_description"] == "Тест"
+        assert context["current_stage"] == "test_stage"
+        assert context["completed_stages"] == []
+        assert context["stage_outputs"] == {}
     
     def test_agent_state(self):
         """Тест состояния агента."""
@@ -113,7 +115,7 @@ class TestWorkflowNodes:
         
         assert result["current_node"] == "test_stage"
         # Проверяем, что результат добавлен в stage_outputs
-        assert "test_stage" in result["context"].stage_outputs
+        assert "test_stage" in result["context"]["stage_outputs"]
 
 
 class TestSubgraphs:
@@ -156,8 +158,8 @@ class TestSubgraphs:
         
         # Создаем состояние с необходимыми входными данными
         state = create_initial_state("Тест", "test_workflow")
-        state["context"].stage_outputs["code_path"] = "/test/path"
-        state["context"].stage_outputs["project_type"] = "python"
+        state["context"]["stage_outputs"]["code_path"] = "/test/path"
+        state["context"]["stage_outputs"]["project_type"] = "python"
         
         assert subgraph.validate_inputs(state)
         

@@ -25,6 +25,9 @@ class MCPServerConfig(BaseModel):
     name: str
     command: str
     args: List[str] = Field(default_factory=list)
+    cwd: Optional[str] = None
+    env: Optional[Dict[str, str]] = None
+    enabled_for_workflows: List[str] = Field(default_factory=list)
 
 class Settings(BaseModel):
     """Основные настройки FlowCraft"""

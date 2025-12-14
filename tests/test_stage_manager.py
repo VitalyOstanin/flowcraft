@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 
 from src.workflows.stage_manager import StageManager, StageCommandProcessor, WorkflowStage
-from src.core.settings import Settings, LLMSettings
+from src.core.settings import Settings, LLMConfig
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def settings(temp_workflows_dir):
     """Настройки для тестов"""
     return Settings(
         language="ru",
-        llm=LLMSettings(
+        llm=LLMConfig(
             cheap_model="test",
             expensive_model="test",
             expensive_stages=[]
