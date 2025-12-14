@@ -22,12 +22,11 @@ def getch():
         ch = sys.stdin.read(1)
         if ch == '\x1b':  # ESC
             return ch
-        # Для обычных символов читаем до Enter
-        if ch != '\n' and ch != '\r':
-            sys.stdout.write(ch)
+        # Для цифр возвращаем сразу
+        if ch.isdigit():
+            sys.stdout.write(ch + '\n')
             sys.stdout.flush()
-            line = ch + sys.stdin.readline()
-            return line.rstrip('\n\r')
+            return ch
         return ch
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
@@ -149,11 +148,14 @@ class SimpleInteractiveCLI:
         console.print(table)
         
         try:
-            choice = CustomPrompt.ask("Выберите workflow (номер)", choices=[str(i) for i in range(1, len(workflows) + 1)])
+            choice = input(f"\nВыберите workflow (номер 1-{len(workflows)}): ").strip()
+            if not choice.isdigit() or not (1 <= int(choice) <= len(workflows)):
+                console.print("Неверный выбор", style="red")
+                return
             selected_workflow = workflows[int(choice) - 1]
             self.current_workflow = selected_workflow
             console.print(f"Выбран workflow: [bold green]{selected_workflow['name']}[/bold green]")
-        except (ValueError, IndexError):
+        except (ValueError, IndexError, KeyboardInterrupt):
             console.print("Неверный выбор", style="red")
 
     def clear_screen(self):
@@ -270,15 +272,14 @@ class SimpleInteractiveCLI:
         """Показать меню управления"""
         console.print("\n=== Меню FlowCraft ===", style="bold blue")
         console.print("1. Сменить workflow")
-        console.print("2. Управление агентами")
-        console.print("3. Управление этапами workflow")
+        console.print("2. Управление workflow")
+        console.print("3. Управление агентами")
         console.print("4. Показать настройки")
-        console.print("5. Режим команд (если доступен)")
-        console.print("6. Выход")
+        console.print("5. Выход")
         console.print("ESC. Вернуться к вводу задач")
         
         try:
-            sys.stdout.write("Выберите действие [1/2/3/4/5/6]: ")
+            sys.stdout.write("Выберите действие [1/2/3/4/5]: ")
             sys.stdout.flush()
             choice = getch()
             
@@ -288,7 +289,7 @@ class SimpleInteractiveCLI:
                 return "continue"
                 
             choice = choice.strip()
-            if choice not in ["1", "2", "3", "4", "5", "6"]:
+            if choice not in ["1", "2", "3", "4", "5"]:
                 console.print("\nНеверный выбор", style="red")
                 return "continue"
         except KeyboardInterrupt:
@@ -302,17 +303,12 @@ class SimpleInteractiveCLI:
         if choice == "1":
             self.select_workflow()
         elif choice == "2":
-            self.manage_agents()
+            self.manage_workflows()
         elif choice == "3":
-            self.manage_workflow_stages()
+            self.manage_agents()
         elif choice == "4":
             self.show_settings()
         elif choice == "5":
-            if self.command_handler:
-                asyncio.run(self.command_mode())
-            else:
-                console.print("Режим команд недоступен", style="yellow")
-        elif choice == "6":
             return "exit"
         
         return "continue"
@@ -405,7 +401,64 @@ class SimpleInteractiveCLI:
         # TODO: Реальный запуск workflow
         console.print("Workflow запущен (заглушка)", style="yellow")
     
-    def manage_agents(self):
+    def manage_workflows(self):
+        """Управление workflow"""
+        while True:
+            console.print("\n=== Управление Workflow ===", style="bold blue")
+            console.print("1. Создать workflow")
+            console.print("2. Список workflow")
+            console.print("3. Удалить workflow")
+            console.print("4. Управление этапами workflow")
+            console.print("5. Назад")
+            
+            choice = input("Выберите действие [1/2/3/4/5]: ").strip()
+            
+            if choice not in ["1", "2", "3", "4", "5"]:
+                console.print("Неверный выбор", style="red")
+                continue
+                
+            if choice == "1":
+                self.create_workflow()
+            elif choice == "2":
+                self.list_workflows()
+            elif choice == "3":
+                self.delete_workflow()
+            elif choice == "4":
+                self.manage_workflow_stages()
+            elif choice == "5":
+                break
+
+    def create_workflow(self):
+        """Создать новый workflow"""
+        console.print("Создание workflow (в разработке)", style="yellow")
+
+    def list_workflows(self):
+        """Показать список workflow"""
+        if not self.workflow_manager:
+            console.print("Менеджер workflow не инициализирован", style="red")
+            return
+            
+        workflows = self.workflow_manager.list_workflows()
+        if not workflows:
+            console.print("Нет доступных workflow", style="yellow")
+            return
+            
+        console.print("\n=== Список Workflow ===", style="bold blue")
+        table = Table(title="Доступные Workflow")
+        table.add_column("№", style="cyan")
+        table.add_column("Название", style="magenta")
+        table.add_column("Описание", style="green")
+        table.add_column("Текущий", style="yellow")
+        
+        for i, workflow in enumerate(workflows, 1):
+            current_mark = "✓" if self.current_workflow and workflow['name'] == self.current_workflow['name'] else ""
+            table.add_row(str(i), workflow['name'], workflow['description'], current_mark)
+        
+        console.print(table)
+
+    def delete_workflow(self):
+        """Удалить workflow"""
+        console.print("Удаление workflow (в разработке)", style="yellow")
         """Управление агентами"""
         while True:
             console.print("\n" + "-"*30)
@@ -415,7 +468,11 @@ class SimpleInteractiveCLI:
             console.print("3. Удалить агента")
             console.print("4. Назад")
             
-            choice = CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4"])
+            choice = input("Выберите действие [1/2/3/4]: ").strip()
+            
+            if choice not in ["1", "2", "3", "4"]:
+                console.print("Неверный выбор", style="red")
+                continue
             
             if choice == "1":
                 self.list_agents()
@@ -491,6 +548,12 @@ class SimpleInteractiveCLI:
         if not self.workflow_manager:
             console.print("Менеджер workflow не инициализирован", style="red")
             return
+            
+        # Проверка на default workflow
+        if not self.current_workflow or self.current_workflow.get('name') == 'default':
+            console.print("Управление этапами недоступно для default workflow", style="yellow")
+            console.print("Создайте собственный workflow и выберите его как текущий", style="dim")
+            return
         
         while True:
             console.print("\n" + "-"*30)
@@ -504,7 +567,11 @@ class SimpleInteractiveCLI:
             console.print("7. Выполнить команду")
             console.print("8. Назад")
             
-            choice = CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "7", "8"])
+            choice = input("Выберите действие [1/2/3/4/5/6/7/8]: ").strip()
+            
+            if choice not in ["1", "2", "3", "4", "5", "6", "7", "8"]:
+                console.print("Неверный выбор", style="red")
+                continue
             
             if choice == "1":
                 self._select_workflow_for_stages()
