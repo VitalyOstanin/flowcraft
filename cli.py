@@ -62,7 +62,8 @@ def main(config, debug):
         # Workflow manager с engine
         workflow_manager = WorkflowManager(
             workflows_dir=settings_manager.settings.workflows_dir,
-            workflow_engine=workflow_engine
+            workflow_engine=workflow_engine,
+            settings=settings_manager.settings
         )
         
         # Регистрация стандартных подграфов

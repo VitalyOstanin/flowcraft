@@ -4,15 +4,24 @@ from typing import List, Dict, Optional
 from pathlib import Path
 
 from .engine import WorkflowEngine
+from .stage_manager import StageManager, StageCommandProcessor
 from .subgraphs import get_registry
 
 
 class WorkflowManager:
-    def __init__(self, workflows_dir: str, workflow_engine: Optional[WorkflowEngine] = None):
+    def __init__(self, workflows_dir: str, workflow_engine: Optional[WorkflowEngine] = None, settings=None):
         self.workflows_dir = Path(workflows_dir).expanduser()
         self.workflows_dir.mkdir(parents=True, exist_ok=True)
         self.workflow_engine = workflow_engine
         self.subgraph_registry = get_registry()
+        
+        # Инициализация менеджера этапов
+        if settings:
+            self.stage_manager = StageManager(settings)
+            self.stage_command_processor = StageCommandProcessor(self.stage_manager)
+        else:
+            self.stage_manager = None
+            self.stage_command_processor = None
     
     def list_workflows(self) -> List[Dict]:
         """Список всех workflow"""
@@ -327,3 +336,53 @@ class WorkflowManager:
                 "description": "Workflow исправления багов: анализ -> исправление -> проверка"
             }
         ]
+    
+    # Методы управления этапами
+    
+    def list_workflow_stages(self, workflow_name: str):
+        """Получить список этапов workflow"""
+        if not self.stage_manager:
+            raise RuntimeError("Менеджер этапов не инициализирован")
+        return self.stage_manager.list_stages(workflow_name)
+    
+    def get_workflow_stage(self, workflow_name: str, stage_name: str):
+        """Получить этап по имени"""
+        if not self.stage_manager:
+            raise RuntimeError("Менеджер этапов не инициализирован")
+        return self.stage_manager.get_stage(workflow_name, stage_name)
+    
+    def create_workflow_stage(self, workflow_name: str, stage):
+        """Создать новый этап"""
+        if not self.stage_manager:
+            raise RuntimeError("Менеджер этапов не инициализирован")
+        return self.stage_manager.create_stage(workflow_name, stage)
+    
+    def update_workflow_stage(self, workflow_name: str, stage_name: str, updates):
+        """Обновить этап"""
+        if not self.stage_manager:
+            raise RuntimeError("Менеджер этапов не инициализирован")
+        return self.stage_manager.update_stage(workflow_name, stage_name, updates)
+    
+    def delete_workflow_stage(self, workflow_name: str, stage_name: str):
+        """Удалить этап"""
+        if not self.stage_manager:
+            raise RuntimeError("Менеджер этапов не инициализирован")
+        return self.stage_manager.delete_stage(workflow_name, stage_name)
+    
+    def enable_workflow_stage(self, workflow_name: str, stage_name: str):
+        """Включить этап"""
+        if not self.stage_manager:
+            raise RuntimeError("Менеджер этапов не инициализирован")
+        return self.stage_manager.enable_stage(workflow_name, stage_name)
+    
+    def disable_workflow_stage(self, workflow_name: str, stage_name: str):
+        """Отключить этап"""
+        if not self.stage_manager:
+            raise RuntimeError("Менеджер этапов не инициализирован")
+        return self.stage_manager.disable_stage(workflow_name, stage_name)
+    
+    def process_stage_command(self, command: str, workflow_name: str, confirm_callback=None):
+        """Обработать команду управления этапами"""
+        if not self.stage_command_processor:
+            raise RuntimeError("Процессор команд этапов не инициализирован")
+        return self.stage_command_processor.process_command(command, workflow_name, confirm_callback)

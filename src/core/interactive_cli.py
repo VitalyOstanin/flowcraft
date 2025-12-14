@@ -46,13 +46,15 @@ class SimpleInteractiveCLI:
                 elif action == "2":
                     self.manage_agents()
                 elif action == "3":
-                    self.show_settings()
+                    self.manage_workflow_stages()
                 elif action == "4":
+                    self.show_settings()
+                elif action == "5":
                     if self.command_handler:
                         asyncio.run(self.command_mode())
                     else:
                         console.print("Команды недоступны (MCP менеджер не инициализирован)", style="yellow")
-                elif action == "5":
+                elif action == "6":
                     console.print("До свидания!", style="green")
                     break
                 else:
@@ -96,14 +98,15 @@ class SimpleInteractiveCLI:
         console.print("\nГлавное меню FlowCraft", style="bold")
         console.print("1. Запустить workflow")
         console.print("2. Управление агентами")
-        console.print("3. Показать настройки")
+        console.print("3. Управление этапами workflow")
+        console.print("4. Показать настройки")
         if self.command_handler:
-            console.print("4. Режим команд")
+            console.print("5. Режим команд")
+            console.print("6. Выход")
+            return Prompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6"])
+        else:
             console.print("5. Выход")
             return Prompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5"])
-        else:
-            console.print("4. Выход")
-            return Prompt.ask("Выберите действие", choices=["1", "2", "3", "4"])
     
     def process_task(self, task_description: str):
         """Обработать задачу пользователя с автоматическим выбором workflow"""
@@ -341,6 +344,251 @@ class SimpleInteractiveCLI:
                 console.print(f"Агент '{agent_name}' удален", style="green")
             except Exception as e:
                 console.print(f"Ошибка удаления агента: {e}", style="red")
+    
+    def manage_workflow_stages(self):
+        """Управление этапами workflow"""
+        if not self.workflow_manager:
+            console.print("Менеджер workflow не инициализирован", style="red")
+            return
+        
+        while True:
+            console.print("\n" + "-"*30)
+            console.print("Управление этапами workflow", style="bold")
+            console.print("1. Выбрать workflow")
+            console.print("2. Список этапов")
+            console.print("3. Создать этап")
+            console.print("4. Обновить этап")
+            console.print("5. Удалить этап")
+            console.print("6. Включить/отключить этап")
+            console.print("7. Выполнить команду")
+            console.print("8. Назад")
+            
+            choice = Prompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "7", "8"])
+            
+            if choice == "1":
+                self._select_workflow_for_stages()
+            elif choice == "2":
+                self._list_workflow_stages()
+            elif choice == "3":
+                self._create_workflow_stage()
+            elif choice == "4":
+                self._update_workflow_stage()
+            elif choice == "5":
+                self._delete_workflow_stage()
+            elif choice == "6":
+                self._toggle_workflow_stage()
+            elif choice == "7":
+                self._execute_stage_command()
+            elif choice == "8":
+                break
+    
+    def _select_workflow_for_stages(self):
+        """Выбрать workflow для управления этапами"""
+        workflows = self.workflow_manager.list_workflows()
+        if not workflows:
+            console.print("Нет доступных workflow", style="yellow")
+            return
+        
+        table = Table(title="Доступные Workflow")
+        table.add_column("№", style="cyan")
+        table.add_column("Название", style="magenta")
+        table.add_column("Описание", style="green")
+        
+        for i, workflow in enumerate(workflows, 1):
+            table.add_row(str(i), workflow['name'], workflow['description'])
+        
+        console.print(table)
+        
+        try:
+            choice = int(Prompt.ask("Выберите workflow (номер)")) - 1
+            if 0 <= choice < len(workflows):
+                self.current_workflow = workflows[choice]['name']
+                console.print(f"Выбран workflow: {self.current_workflow}", style="green")
+            else:
+                console.print("Неверный номер", style="red")
+        except ValueError:
+            console.print("Введите число", style="red")
+    
+    def _list_workflow_stages(self):
+        """Показать список этапов текущего workflow"""
+        if not self.current_workflow:
+            console.print("Сначала выберите workflow", style="yellow")
+            return
+        
+        try:
+            stages = self.workflow_manager.list_workflow_stages(self.current_workflow)
+            
+            if not stages:
+                console.print("Нет этапов в workflow", style="yellow")
+                return
+            
+            table = Table(title=f"Этапы workflow '{self.current_workflow}'")
+            table.add_column("Название", style="cyan")
+            table.add_column("Описание", style="green")
+            table.add_column("Роли", style="magenta")
+            table.add_column("Статус", style="yellow")
+            
+            for stage in stages:
+                status = "✓ Включен" if stage.enabled else "✗ Отключен"
+                roles_str = ", ".join(stage.roles)
+                table.add_row(stage.name, stage.description, roles_str, status)
+            
+            console.print(table)
+            
+        except Exception as e:
+            console.print(f"Ошибка получения этапов: {e}", style="red")
+    
+    def _create_workflow_stage(self):
+        """Создать новый этап"""
+        if not self.current_workflow:
+            console.print("Сначала выберите workflow", style="yellow")
+            return
+        
+        try:
+            from ..workflows.stage_manager import WorkflowStage
+            
+            name = Prompt.ask("Название этапа")
+            description = Prompt.ask("Описание этапа")
+            roles_input = Prompt.ask("Роли (через запятую)")
+            roles = [role.strip() for role in roles_input.split(",") if role.strip()]
+            skippable = Confirm.ask("Этап можно пропустить?", default=False)
+            
+            stage = WorkflowStage(
+                name=name,
+                description=description,
+                roles=roles,
+                skippable=skippable
+            )
+            
+            self.workflow_manager.create_workflow_stage(self.current_workflow, stage)
+            console.print(f"Этап '{name}' создан", style="green")
+            
+        except Exception as e:
+            console.print(f"Ошибка создания этапа: {e}", style="red")
+    
+    def _update_workflow_stage(self):
+        """Обновить этап"""
+        if not self.current_workflow:
+            console.print("Сначала выберите workflow", style="yellow")
+            return
+        
+        try:
+            stage_name = Prompt.ask("Название этапа для обновления")
+            
+            # Получить текущий этап
+            current_stage = self.workflow_manager.get_workflow_stage(self.current_workflow, stage_name)
+            if not current_stage:
+                console.print("Этап не найден", style="red")
+                return
+            
+            console.print(f"Текущие значения для этапа '{stage_name}':")
+            console.print(f"Описание: {current_stage.description}")
+            console.print(f"Роли: {', '.join(current_stage.roles)}")
+            console.print(f"Можно пропустить: {current_stage.skippable}")
+            
+            updates = {}
+            
+            new_description = Prompt.ask("Новое описание (Enter - оставить текущее)", default="")
+            if new_description:
+                updates['description'] = new_description
+            
+            new_roles_input = Prompt.ask("Новые роли через запятую (Enter - оставить текущие)", default="")
+            if new_roles_input:
+                updates['roles'] = [role.strip() for role in new_roles_input.split(",") if role.strip()]
+            
+            if Confirm.ask("Изменить настройку 'можно пропустить'?", default=False):
+                updates['skippable'] = Confirm.ask("Этап можно пропустить?", default=current_stage.skippable)
+            
+            if updates:
+                self.workflow_manager.update_workflow_stage(self.current_workflow, stage_name, updates)
+                console.print(f"Этап '{stage_name}' обновлен", style="green")
+            else:
+                console.print("Изменения не внесены", style="yellow")
+                
+        except Exception as e:
+            console.print(f"Ошибка обновления этапа: {e}", style="red")
+    
+    def _delete_workflow_stage(self):
+        """Удалить этап"""
+        if not self.current_workflow:
+            console.print("Сначала выберите workflow", style="yellow")
+            return
+        
+        stage_name = Prompt.ask("Название этапа для удаления")
+        
+        if Confirm.ask(f"Удалить этап '{stage_name}'?"):
+            try:
+                self.workflow_manager.delete_workflow_stage(self.current_workflow, stage_name)
+                console.print(f"Этап '{stage_name}' удален", style="green")
+            except Exception as e:
+                console.print(f"Ошибка удаления этапа: {e}", style="red")
+    
+    def _toggle_workflow_stage(self):
+        """Включить/отключить этап"""
+        if not self.current_workflow:
+            console.print("Сначала выберите workflow", style="yellow")
+            return
+        
+        try:
+            stage_name = Prompt.ask("Название этапа")
+            
+            # Получить текущий статус
+            stage = self.workflow_manager.get_workflow_stage(self.current_workflow, stage_name)
+            if not stage:
+                console.print("Этап не найден", style="red")
+                return
+            
+            current_status = "включен" if stage.enabled else "отключен"
+            new_action = "отключить" if stage.enabled else "включить"
+            
+            console.print(f"Этап '{stage_name}' сейчас {current_status}")
+            
+            if Confirm.ask(f"{new_action.capitalize()} этап?"):
+                if stage.enabled:
+                    self.workflow_manager.disable_workflow_stage(self.current_workflow, stage_name)
+                    console.print(f"Этап '{stage_name}' отключен", style="green")
+                else:
+                    self.workflow_manager.enable_workflow_stage(self.current_workflow, stage_name)
+                    console.print(f"Этап '{stage_name}' включен", style="green")
+                    
+        except Exception as e:
+            console.print(f"Ошибка изменения статуса этапа: {e}", style="red")
+    
+    def _execute_stage_command(self):
+        """Выполнить команду управления этапами"""
+        if not self.current_workflow:
+            console.print("Сначала выберите workflow", style="yellow")
+            return
+        
+        console.print("\nПримеры команд:")
+        console.print("list_stages")
+        console.print("create_stage name='test' description='Test stage' roles=['developer']")
+        console.print("update_stage name='test' description='Updated description'")
+        console.print("delete_stage name='test'")
+        console.print("enable_stage name='test'")
+        console.print("disable_stage name='test'")
+        
+        command = Prompt.ask("Введите команду")
+        
+        def confirm_callback(message):
+            return Confirm.ask(message)
+        
+        try:
+            result = self.workflow_manager.process_stage_command(
+                command, 
+                self.current_workflow, 
+                confirm_callback
+            )
+            
+            if result['success']:
+                console.print(result['message'], style="green")
+                if 'data' in result:
+                    console.print(f"Данные: {result['data']}")
+            else:
+                console.print(result['message'], style="red")
+                
+        except Exception as e:
+            console.print(f"Ошибка выполнения команды: {e}", style="red")
     
     def show_settings(self):
         """Показать настройки"""

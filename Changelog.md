@@ -24,6 +24,14 @@
   - DeploymentSubgraph - развертывание приложений
   - DocumentationSubgraph - создание документации
 
+#### Управление этапами workflow
+- StageManager - CRUD операции для этапов workflow
+- WorkflowStage - модель этапа с поддержкой enable/disable
+- StageCommandProcessor - обработка команд от LLM с подтверждением
+- CLI интерфейс для интерактивного управления этапами
+- Поддержка команд: create_stage, update_stage, delete_stage, enable_stage, disable_stage
+- Система подтверждения команд от LLM через callback функции
+
 #### LLM интеграция для workflow
 - WorkflowLLMManager для управления LLM провайдерами в workflow
 - Автоматический выбор модели на основе настроек и типа stage
