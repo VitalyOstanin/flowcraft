@@ -5,6 +5,7 @@ FlowCraft - Мультиагентный AI CLI агент
 
 import click
 import sys
+import asyncio
 from pathlib import Path
 
 # Добавить src в путь для импортов
@@ -144,7 +145,7 @@ def main(config, debug):
             mcp_manager, 
             workflow_manager
         )
-        cli.start()
+        asyncio.run(cli.start())
         
     except Exception as e:
         console.print(f"Ошибка инициализации: {e}", style="red")

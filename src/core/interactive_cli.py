@@ -96,17 +96,12 @@ class SimpleInteractiveCLI:
         console.print("Доступные команды:")
         console.print("• /help - показать эту справку")
         console.print("• /clear - очистить экран")
-        console.print("\nВарианты использования:")
-        console.print("1. Введите задачу в поле 'Задача' для запуска workflow")
-        console.print("2. Выберите пункт меню для других действий:")
-        console.print("   - 1: Запустить workflow")
-        console.print("   - 2: Управление агентами") 
-        console.print("   - 3: Управление этапами workflow")
-        console.print("   - 4: Показать настройки")
-        console.print("   - 5: Прямой запрос к LLM (без workflow)")
-        console.print("   - 6: Режим команд (если доступен)")
-        console.print("   - 7: Выход")
-        input("\nНажмите Enter для продолжения...")
+        console.print("• /menu - показать меню управления")
+        console.print("\nИспользование:")
+        console.print("1. Введите задачу для выполнения через LLM или workflow")
+        console.print("2. Нажмите Enter без ввода для показа меню")
+        console.print("3. Используйте Ctrl+C для выхода")
+        console.print("4. ESC для прерывания выполнения workflow")
 
     def select_workflow(self):
         """Выбрать workflow"""
@@ -145,191 +140,143 @@ class SimpleInteractiveCLI:
         os.system('clear' if os.name == 'posix' else 'cls')
         console.clear()
     
-    def start(self):
+    async def start(self):
         """Запустить интерактивную сессию"""        
         console.print("Введите '/help' для справки", style="dim")
         
+        # Показать текущий workflow
+        if self.current_workflow:
+            console.print(f"Использование режима {self.current_workflow['name']} workflow", style="cyan")
+        
         while True:
             try:
-                action = self.show_main_menu()
+                # Основной цикл - ввод задачи
+                console.print("\nОпишите вашу задачу:", style="bold")
+                task_input = CustomPrompt.ask("Задача", default="")
                 
-                if action == "clear":
+                if task_input == "clear":
                     self.clear_screen()
                     continue
-                elif action == "task_processed" or action == "help_shown":
-                    continue  # Задача обработана или справка показана, показать меню снова
-                elif action == "1":
-                    self.start_workflow()
-                elif action == "2":
-                    self.select_workflow()
-                elif action == "3":
-                    self.manage_agents()
-                elif action == "4":
-                    self.manage_workflow_stages()
-                elif action == "5":
-                    self.show_settings()
-                elif action == "6":
-                    asyncio.run(self.direct_llm_query())
-                elif action == "7":
-                    if self.command_handler:
-                        asyncio.run(self.command_mode())
-                    else:
-                        console.print("До свидания!", style="green")
-                        break
-                elif action == "8":
-                    console.print("До свидания!", style="green")
-                    break
-                elif action == "clear":
-                    self.clear_screen()
-                    continue
+                
+                if task_input.strip():
+                    # Проверить команды
+                    if task_input.strip() == "/help":
+                        self.show_help()
+                        continue
+                    elif task_input.strip() == "/clear":
+                        self.clear_screen()
+                        continue
+                    elif task_input.strip() == "/menu":
+                        action = self.show_menu()
+                        if action == "exit":
+                            break
+                        continue
+                    
+                    # Обработать задачу
+                    await self.process_task_with_workflow(task_input.strip())
                 else:
-                    console.print("Неверный выбор", style="red")
+                    # Если пустой ввод, показать меню
+                    action = self.show_menu()
+                    if action == "exit":
+                        break
                     
             except KeyboardInterrupt:
                 console.print("\nВыход из программы", style="yellow")
                 break
             except EOFError:
-                # Ctrl-D
                 console.print("\nВыход из программы", style="yellow")
                 break
             except Exception as e:
                 console.print(f"Ошибка: {e}", style="red")
     
-    def show_main_menu(self) -> str:
-        """Показать главное меню с доступными workflow и полем ввода задачи"""
-        console.print("\n" + "="*50)
-        
-        # Показать текущий выбранный workflow
-        if self.current_workflow:
-            console.print(f"Текущий workflow: [bold green]{self.current_workflow['name']}[/bold green] - {self.current_workflow['description']}")
-        else:
-            console.print("Workflow не выбран", style="yellow")
-        
-        # Показать доступные workflow сразу
-        if self.workflow_manager:
-            workflows = self.workflow_manager.list_workflows()
-            if workflows:
-                table = Table(title="Доступные Workflow")
-                table.add_column("№", style="cyan")
-                table.add_column("Название", style="magenta")
-                table.add_column("Описание", style="green")
-                
-                for i, workflow in enumerate(workflows, 1):
-                    table.add_row(str(i), workflow['name'], workflow['description'])
-                
-                console.print(table)
-            else:
-                console.print("Нет доступных workflow", style="yellow")
-        
-        # Поле ввода задачи
-        console.print("\nОпишите вашу задачу:", style="bold")
-        task_input = CustomPrompt.ask("Задача", default="")
-        
-        if task_input == "clear":
-            self.clear_screen()
-            return "clear"
-        
-        if task_input.strip():
-            # Проверить команды
-            if task_input.strip() == "/help":
-                self.show_help()
-                return "help_shown"
-            elif task_input.strip() == "/clear":
-                self.clear_screen()
-                return "clear"
+    async def process_task_with_workflow(self, task: str):
+        """Обработать задачу с использованием workflow или прямого LLM"""
+        try:
+            if self.current_workflow and self.current_workflow['name'] != 'default':
+                # Спросить подтверждение для смены workflow
+                console.print(f"Текущий workflow: {self.current_workflow['name']}")
+                if not Confirm.ask("Продолжить с текущим workflow?"):
+                    self.select_workflow()
+                    if not self.current_workflow:
+                        return
             
-            # Обработать задачу
-            asyncio.run(self.process_task(task_input.strip()))
-            return "task_processed"
-        
-        console.print("\nГлавное меню FlowCraft", style="bold")
-        console.print("1. Запустить workflow")
-        console.print("2. Сменить workflow")
-        console.print("3. Управление агентами")
-        console.print("4. Управление этапами workflow")
-        console.print("5. Показать настройки")
-        console.print("6. Прямой запрос к LLM")
-        console.print("clear. Очистить экран")
-        if self.command_handler:
-            console.print("7. Режим команд")
-            console.print("8. Выход")
-            return CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "7", "8", "clear"])
-        else:
-            console.print("7. Выход")
-            return CustomPrompt.ask("Выберите действие", choices=["1", "2", "3", "4", "5", "6", "7", "clear"])
+            if self.current_workflow and self.current_workflow['name'] == 'default':
+                # Для default workflow - прямой запрос к LLM
+                await self.direct_llm_execution(task)
+            else:
+                # Запуск полного workflow
+                await self.execute_workflow(task)
+                
+        except KeyboardInterrupt:
+            console.print("\nВыполнение прервано пользователем", style="yellow")
+        except Exception as e:
+            console.print(f"Ошибка выполнения: {e}", style="red")
     
-    async def process_task(self, task_description: str):
-        """Обработать задачу пользователя с автоматическим выбором workflow"""
+    async def direct_llm_execution(self, task: str):
+        """Прямое выполнение через LLM без workflow"""
+        console.print("Обработка запроса...", style="yellow")
+        
+        try:
+            from llm.qwen_code import QwenCodeProvider
+            from llm.base import LLMMessage
+            
+            qwen_provider = QwenCodeProvider()
+            messages = [LLMMessage(role="user", content=task)]
+            response = await qwen_provider.chat_completion(messages)
+            
+            console.print(f"\n{response.content}", style="green")
+            
+        except Exception as e:
+            console.print(f"Ошибка LLM: {e}", style="red")
+    
+    async def execute_workflow(self, task: str):
+        """Выполнить полный workflow"""
         if not self.workflow_manager:
             console.print("Менеджер workflow не инициализирован", style="red")
             return
             
-        workflows = self.workflow_manager.list_workflows()
-        selected_workflow = None
+        console.print(f"Запуск workflow: {self.current_workflow['name']}", style="cyan")
+        # Здесь должна быть логика выполнения workflow
+        # Пока заглушка
+        console.print("Выполнение workflow (в разработке)", style="yellow")
+    
+    def show_menu(self) -> str:
+        """Показать меню управления"""
+        console.print("\n=== Меню FlowCraft ===", style="bold blue")
+        console.print("1. Сменить workflow")
+        console.print("2. Управление агентами")
+        console.print("3. Управление этапами workflow")
+        console.print("4. Показать настройки")
+        console.print("5. Режим команд (если доступен)")
+        console.print("6. Выход")
+        console.print("ESC. Вернуться к вводу задач")
         
-        # Использовать текущий выбранный workflow
-        if self.current_workflow:
-            selected_workflow = self.current_workflow['name']
-            console.print(f"Использование режима {selected_workflow} workflow")
-        
-        # Попытка выбора через LLM если есть workflow и не выбран текущий
-        if workflows:
-            try:
-                from llm.qwen_code import QwenCodeProvider
-                llm_provider = QwenCodeProvider()
-                
-                selected_workflow = self.workflow_manager.select_workflow_by_description(task_description, llm_provider)
-                
-                if selected_workflow:
-                    workflow_info = next((w for w in workflows if w['name'] == selected_workflow), None)
-                    if workflow_info:
-                        console.print(f"\nПредлагаемый workflow: [bold]{selected_workflow}[/bold]")
-                        console.print(f"Описание: {workflow_info['description']}")
-                        
-                        if not Confirm.ask("Подтвердить выбор?"):
-                            selected_workflow = None
-                            
-            except Exception as e:
-                console.print(f"Ошибка при автоматическом выборе: {e}", style="yellow")
-        
-        # Если не выбран workflow, использовать default режим
-        if not selected_workflow:
-            console.print("Использование режима default workflow", style="cyan")
-            selected_workflow = "default"
-        
-        # Запрос ID задачи
-        task_id = CustomPrompt.ask("ID задачи", default="auto")
-        
-        console.print(f"Запуск workflow: [bold]{selected_workflow}[/bold]", style="green")
-        console.print(f"Задача: {task_id} - {task_description}")
-        
-        # Реальный запуск workflow через LangGraph
         try:
-            result = await self.workflow_manager.execute_workflow(
-                workflow_name=selected_workflow,
-                task_description=task_description,
-                thread_id=task_id if task_id != "auto" else None
-            )
-            
-            if result.get("success", False):
-                console.print("Workflow завершен успешно!", style="green")
-                
-                # Показываем результаты
-                completed = result.get("completed_stages", [])
-                if completed:
-                    console.print(f"Завершенные этапы: {', '.join(completed)}")
-                
-            else:
-                console.print("Workflow завершен с ошибками", style="red")
-                error = result.get("error", "Неизвестная ошибка")
-                console.print(f"Ошибка: {error}")
-                
-                failed = result.get("failed_stages", [])
-                if failed:
-                    console.print(f"Неуспешные этапы: {', '.join(failed)}")
+            choice = input("Выберите действие [1/2/3/4/5/6]: ").strip()
+            if choice not in ["1", "2", "3", "4", "5", "6"]:
+                console.print("Неверный выбор", style="red")
+                return "continue"
+        except KeyboardInterrupt:
+            # ESC или Ctrl+C - возврат к основному циклу
+            return "continue"
         
-        except Exception as e:
-            console.print(f"Критическая ошибка: {str(e)}", style="red")
+        if choice == "1":
+            self.select_workflow()
+        elif choice == "2":
+            self.manage_agents()
+        elif choice == "3":
+            self.manage_workflow_stages()
+        elif choice == "4":
+            self.show_settings()
+        elif choice == "5":
+            if self.command_handler:
+                asyncio.run(self.command_mode())
+            else:
+                console.print("Режим команд недоступен", style="yellow")
+        elif choice == "6":
+            return "exit"
+        
+        return "continue"
 
     async def command_mode(self):
         """Режим команд"""
