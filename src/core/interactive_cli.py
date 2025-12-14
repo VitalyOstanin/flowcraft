@@ -431,40 +431,148 @@ class SimpleInteractiveCLI:
     def create_workflow(self):
         """Создать новый workflow"""
         try:
-            name = Prompt.ask("Название workflow")
-            if not name:
-                console.print("Название не может быть пустым", style="red")
-                return
-                
-            description = Prompt.ask("Описание workflow")
+            # Предложить создание через LLM
+            use_llm = Confirm.ask("Создать workflow с помощью LLM?", default=True)
             
-            # Базовая конфигурация с минимальным stage
-            config = {
-                'roles': [
-                    {
-                        'name': 'developer',
-                        'prompt': 'Ты разработчик. Отвечай на русском.',
-                        'expensive_model': False
-                    }
-                ],
-                'stages': [
-                    {
-                        'name': 'initial_stage',
-                        'roles': ['developer'],
-                        'skippable': False,
-                        'description': 'Начальный этап workflow'
-                    }
-                ]
-            }
-            
-            # Создаем workflow
-            if self.workflow_manager.create_workflow(name, description, config):
-                console.print(f"Workflow '{name}' создан", style="green")
+            if use_llm:
+                asyncio.run(self._create_workflow_with_llm())
             else:
-                console.print(f"Workflow '{name}' уже существует", style="red")
+                self._create_workflow_manual()
                 
         except Exception as e:
             console.print(f"Ошибка создания workflow: {e}", style="red")
+    
+    def _create_workflow_manual(self):
+        """Ручное создание workflow"""
+        name = Prompt.ask("Название workflow")
+        if not name:
+            console.print("Название не может быть пустым", style="red")
+            return
+            
+        description = Prompt.ask("Описание workflow")
+        
+        # Базовая конфигурация с минимальным stage
+        config = {
+            'roles': [
+                {
+                    'name': 'developer',
+                    'prompt': 'Ты разработчик. Отвечай на русском.',
+                    'expensive_model': False
+                }
+            ],
+            'stages': [
+                {
+                    'name': 'initial_stage',
+                    'roles': ['developer'],
+                    'skippable': False,
+                    'description': 'Начальный этап workflow'
+                }
+            ]
+        }
+        
+        # Создаем workflow
+        if self.workflow_manager.create_workflow(name, description, config):
+            console.print(f"Workflow '{name}' создан", style="green")
+        else:
+            console.print(f"Workflow '{name}' уже существует", style="red")
+    
+    async def _create_workflow_with_llm(self):
+        """Создание workflow с помощью LLM"""
+        try:
+            from llm.qwen_code import QwenCodeProvider
+            from llm.base import LLMMessage
+            
+            # Запрос описания от пользователя
+            user_description = Prompt.ask("Опишите какой workflow вы хотите создать")
+            if not user_description:
+                console.print("Описание не может быть пустым", style="red")
+                return
+            
+            console.print("Генерация workflow через LLM...", style="yellow")
+            
+            # LLM промпт для создания workflow
+            prompt = f"""Создай конфигурацию workflow на основе описания пользователя: "{user_description}"
+
+Верни JSON в следующем формате:
+{{
+    "name": "краткое_название_workflow",
+    "description": "подробное описание workflow",
+    "roles": [
+        {{
+            "name": "имя_роли",
+            "prompt": "промпт для роли на русском языке",
+            "expensive_model": false
+        }}
+    ],
+    "stages": [
+        {{
+            "name": "название_этапа",
+            "roles": ["имя_роли"],
+            "skippable": false,
+            "description": "описание этапа"
+        }}
+    ]
+}}
+
+Создай минимум 2-3 этапа и 1-2 роли. Все тексты на русском языке."""
+
+            llm_provider = QwenCodeProvider()
+            messages = [LLMMessage(role="user", content=prompt)]
+            response = await llm_provider.chat_completion(messages)
+            
+            # Парсим ответ LLM
+            import json
+            try:
+                # Извлекаем JSON из ответа
+                response_text = response.content.strip()
+                if "```json" in response_text:
+                    json_start = response_text.find("```json") + 7
+                    json_end = response_text.find("```", json_start)
+                    json_text = response_text[json_start:json_end].strip()
+                else:
+                    json_text = response_text
+                
+                workflow_config = json.loads(json_text)
+                
+                # Показываем предложенную конфигурацию
+                console.print("\n=== Предложенный workflow ===", style="bold blue")
+                console.print(f"Название: {workflow_config['name']}")
+                console.print(f"Описание: {workflow_config['description']}")
+                console.print(f"Ролей: {len(workflow_config.get('roles', []))}")
+                console.print(f"Этапов: {len(workflow_config.get('stages', []))}")
+                
+                # Показываем детали
+                console.print("\nРоли:")
+                for role in workflow_config.get('roles', []):
+                    console.print(f"  - {role['name']}: {role.get('prompt', '')[:50]}...")
+                
+                console.print("\nЭтапы:")
+                for stage in workflow_config.get('stages', []):
+                    console.print(f"  - {stage['name']}: {stage.get('description', '')}")
+                
+                # Запрашиваем подтверждение
+                if Confirm.ask("\nСоздать этот workflow?"):
+                    name = workflow_config['name']
+                    description = workflow_config['description']
+                    config = {
+                        'roles': workflow_config.get('roles', []),
+                        'stages': workflow_config.get('stages', [])
+                    }
+                    
+                    if self.workflow_manager.create_workflow(name, description, config):
+                        console.print(f"Workflow '{name}' создан", style="green")
+                    else:
+                        console.print(f"Workflow '{name}' уже существует", style="red")
+                else:
+                    console.print("Создание отменено", style="yellow")
+                    
+            except json.JSONDecodeError:
+                console.print("Ошибка парсинга ответа LLM. Попробуйте ручное создание.", style="red")
+                
+        except Exception as e:
+            console.print(f"Ошибка LLM создания: {e}", style="red")
+            console.print("Переходим к ручному созданию...", style="yellow")
+            self._create_workflow_manual()
 
     def list_workflows(self):
         """Показать список workflow"""
@@ -497,35 +605,112 @@ class SimpleInteractiveCLI:
             if not workflows:
                 console.print("Нет доступных workflow", style="yellow")
                 return
-                
-            # Показываем список workflow
-            console.print("\nДоступные workflow:")
-            for i, workflow in enumerate(workflows, 1):
-                console.print(f"{i}. {workflow['name']} - {workflow['description']}")
             
-            choice = Prompt.ask("Выберите номер workflow для удаления")
-            try:
-                index = int(choice) - 1
-                if 0 <= index < len(workflows):
-                    workflow_name = workflows[index]['name']
-                    
-                    # Защита от удаления default workflow
-                    if workflow_name == 'default':
-                        console.print("Нельзя удалить системный workflow 'default'", style="red")
-                        return
-                    
-                    if Confirm.ask(f"Удалить workflow '{workflow_name}'?"):
-                        if self.workflow_manager.delete_workflow(workflow_name):
-                            console.print(f"Workflow '{workflow_name}' удален", style="green")
-                        else:
-                            console.print(f"Ошибка удаления workflow '{workflow_name}'", style="red")
-                else:
-                    console.print("Неверный номер", style="red")
-            except ValueError:
-                console.print("Введите корректный номер", style="red")
+            # Предложить удаление через LLM
+            use_llm = Confirm.ask("Выбрать workflow для удаления с помощью LLM?", default=True)
+            
+            if use_llm:
+                asyncio.run(self._delete_workflow_with_llm(workflows))
+            else:
+                self._delete_workflow_manual(workflows)
                 
         except Exception as e:
             console.print(f"Ошибка удаления workflow: {e}", style="red")
+    
+    def _delete_workflow_manual(self, workflows):
+        """Ручное удаление workflow"""
+        # Показываем список workflow
+        console.print("\nДоступные workflow:")
+        for i, workflow in enumerate(workflows, 1):
+            console.print(f"{i}. {workflow['name']} - {workflow['description']}")
+        
+        choice = Prompt.ask("Выберите номер workflow для удаления")
+        try:
+            index = int(choice) - 1
+            if 0 <= index < len(workflows):
+                workflow_name = workflows[index]['name']
+                
+                # Защита от удаления default workflow
+                if workflow_name == 'default':
+                    console.print("Нельзя удалить системный workflow 'default'", style="red")
+                    return
+                
+                if Confirm.ask(f"Удалить workflow '{workflow_name}'?"):
+                    if self.workflow_manager.delete_workflow(workflow_name):
+                        console.print(f"Workflow '{workflow_name}' удален", style="green")
+                    else:
+                        console.print(f"Ошибка удаления workflow '{workflow_name}'", style="red")
+            else:
+                console.print("Неверный номер", style="red")
+        except ValueError:
+            console.print("Введите корректный номер", style="red")
+    
+    async def _delete_workflow_with_llm(self, workflows):
+        """Удаление workflow с помощью LLM"""
+        try:
+            from llm.qwen_code import QwenCodeProvider
+            from llm.base import LLMMessage
+            
+            # Запрос описания от пользователя
+            user_description = Prompt.ask("Опишите какой workflow вы хотите удалить")
+            if not user_description:
+                console.print("Описание не может быть пустым", style="red")
+                return
+            
+            console.print("Поиск workflow через LLM...", style="yellow")
+            
+            # Формируем список workflow для LLM
+            workflow_list = "\n".join([f"{i+1}. {w['name']}: {w['description']}" 
+                                      for i, w in enumerate(workflows)])
+            
+            prompt = f"""Пользователь хочет удалить workflow: "{user_description}"
+
+Доступные workflow:
+{workflow_list}
+
+Выбери наиболее подходящий workflow для удаления и верни только его название (name). 
+Если ничего не подходит или пользователь хочет удалить системный workflow 'default', верни "none".
+Верни только название workflow без дополнительных объяснений."""
+
+            llm_provider = QwenCodeProvider()
+            messages = [LLMMessage(role="user", content=prompt)]
+            response = await llm_provider.chat_completion(messages)
+            
+            selected_name = response.content.strip().lower()
+            
+            # Найти workflow по имени
+            selected_workflow = None
+            for workflow in workflows:
+                if workflow['name'].lower() == selected_name:
+                    selected_workflow = workflow
+                    break
+            
+            if selected_workflow:
+                # Защита от удаления default workflow
+                if selected_workflow['name'] == 'default':
+                    console.print("LLM предложил удалить системный workflow 'default' - операция отклонена", style="red")
+                    return
+                
+                # Показываем найденный workflow и запрашиваем подтверждение
+                console.print(f"\n=== LLM предлагает удалить ===", style="bold blue")
+                console.print(f"Название: {selected_workflow['name']}")
+                console.print(f"Описание: {selected_workflow['description']}")
+                
+                if Confirm.ask(f"\nУдалить workflow '{selected_workflow['name']}'?"):
+                    if self.workflow_manager.delete_workflow(selected_workflow['name']):
+                        console.print(f"Workflow '{selected_workflow['name']}' удален", style="green")
+                    else:
+                        console.print(f"Ошибка удаления workflow '{selected_workflow['name']}'", style="red")
+                else:
+                    console.print("Удаление отменено", style="yellow")
+            else:
+                console.print("LLM не смог найти подходящий workflow. Выберите вручную:", style="yellow")
+                self._delete_workflow_manual(workflows)
+                
+        except Exception as e:
+            console.print(f"Ошибка LLM удаления: {e}", style="red")
+            console.print("Переходим к ручному удалению...", style="yellow")
+            self._delete_workflow_manual(workflows)
 
     def manage_agents(self):
         """Управление агентами"""
