@@ -14,10 +14,11 @@ console = Console()
 class SimpleInteractiveCLI:
     """Простой интерактивный CLI"""
     
-    def __init__(self, settings_manager, agent_manager, workflow_loader, mcp_manager=None):
+    def __init__(self, settings_manager, agent_manager, workflow_loader, mcp_manager=None, workflow_manager=None):
         self.settings_manager = settings_manager
         self.agent_manager = agent_manager
         self.workflow_loader = workflow_loader
+        self.workflow_manager = workflow_manager
         self.mcp_manager = mcp_manager
         self.current_workflow = None
         
@@ -33,17 +34,14 @@ class SimpleInteractiveCLI:
             self.command_handler = None
     
     def start(self):
-        """Запустить интерактивную сессию"""
-        console.print(Panel("Добро пожаловать в FlowCraft!", style="bold blue"))
-        
-        if self.command_handler:
-            console.print("Введите /help для справки по командам", style="dim")
-        
+        """Запустить интерактивную сессию"""        
         while True:
             try:
                 action = self.show_main_menu()
                 
-                if action == "1":
+                if action == "task_processed":
+                    continue  # Задача обработана, показать меню снова
+                elif action == "1":
                     self.start_workflow()
                 elif action == "2":
                     self.manage_agents()
@@ -67,9 +65,35 @@ class SimpleInteractiveCLI:
                 console.print(f"Ошибка: {e}", style="red")
     
     def show_main_menu(self) -> str:
-        """Показать главное меню"""
+        """Показать главное меню с доступными workflow и полем ввода задачи"""
         console.print("\n" + "="*50)
-        console.print("Главное меню FlowCraft", style="bold")
+        
+        # Показать доступные workflow сразу
+        if self.workflow_manager:
+            workflows = self.workflow_manager.list_workflows()
+            if workflows:
+                table = Table(title="Доступные Workflow")
+                table.add_column("№", style="cyan")
+                table.add_column("Название", style="magenta")
+                table.add_column("Описание", style="green")
+                
+                for i, workflow in enumerate(workflows, 1):
+                    table.add_row(str(i), workflow['name'], workflow['description'])
+                
+                console.print(table)
+            else:
+                console.print("Нет доступных workflow", style="yellow")
+        
+        # Поле ввода задачи
+        console.print("\nОпишите вашу задачу:", style="bold")
+        task_input = Prompt.ask("Задача", default="")
+        
+        if task_input.strip():
+            # Обработать задачу
+            self.process_task(task_input.strip())
+            return "task_processed"
+        
+        console.print("\nГлавное меню FlowCraft", style="bold")
         console.print("1. Запустить workflow")
         console.print("2. Управление агентами")
         console.print("3. Показать настройки")
@@ -81,6 +105,49 @@ class SimpleInteractiveCLI:
             console.print("4. Выход")
             return Prompt.ask("Выберите действие", choices=["1", "2", "3", "4"])
     
+    def process_task(self, task_description: str):
+        """Обработать задачу пользователя с автоматическим выбором workflow"""
+        if not self.workflow_manager:
+            console.print("Менеджер workflow не инициализирован", style="red")
+            return
+            
+        workflows = self.workflow_manager.list_workflows()
+        selected_workflow = None
+        
+        # Попытка выбора через LLM если есть workflow
+        if workflows:
+            try:
+                from ..llm.providers.qwen import QwenProvider
+                llm_provider = QwenProvider()
+                
+                selected_workflow = self.workflow_manager.select_workflow_by_description(task_description, llm_provider)
+                
+                if selected_workflow:
+                    workflow_info = next((w for w in workflows if w['name'] == selected_workflow), None)
+                    if workflow_info:
+                        console.print(f"\nПредлагаемый workflow: [bold]{selected_workflow}[/bold]")
+                        console.print(f"Описание: {workflow_info['description']}")
+                        
+                        if not Confirm.ask("Подтвердить выбор?"):
+                            selected_workflow = None
+                            
+            except Exception as e:
+                console.print(f"Ошибка при автоматическом выборе: {e}", style="yellow")
+        
+        # Если не выбран workflow, использовать default режим
+        if not selected_workflow:
+            console.print("Использование режима default workflow", style="cyan")
+            selected_workflow = "default"
+        
+        # Запрос ID задачи
+        task_id = Prompt.ask("ID задачи", default="auto")
+        
+        console.print(f"Запуск workflow: [bold]{selected_workflow}[/bold]", style="green")
+        console.print(f"Задача: {task_id} - {task_description}")
+        
+        # TODO: Реальный запуск workflow
+        console.print("Workflow запущен (заглушка)", style="yellow")
+
     async def command_mode(self):
         """Режим команд"""
         console.print(Panel("Режим команд (введите 'exit' для выхода)", style="cyan"))
@@ -105,40 +172,66 @@ class SimpleInteractiveCLI:
                 console.print(f"Ошибка выполнения команды: {e}", style="red")
     
     def start_workflow(self):
-        """Запустить workflow"""
-        workflows = self.workflow_loader.list_workflows()
+        """Запустить workflow с выбором через естественный язык"""
+        if not self.workflow_manager:
+            console.print("Менеджер workflow не инициализирован", style="red")
+            return
+            
+        workflows = self.workflow_manager.list_workflows()
         
         if not workflows:
             console.print("Нет доступных workflow", style="yellow")
             return
         
-        # Показать доступные workflow
-        table = Table(title="Доступные Workflow")
-        table.add_column("№", style="cyan")
-        table.add_column("Название", style="magenta")
-        table.add_column("Описание", style="green")
+        # Запрос описания задачи от пользователя
+        user_input = Prompt.ask("Опишите что вы хотите сделать")
         
-        for i, workflow_name in enumerate(workflows, 1):
-            info = self.workflow_loader.get_workflow_info(workflow_name)
-            description = info.get("description", "") if info else ""
-            table.add_row(str(i), workflow_name, description)
+        # Попытка выбора через LLM
+        try:
+            from ..llm.providers.qwen import QwenProvider
+            llm_provider = QwenProvider()
+            
+            selected_workflow = self.workflow_manager.select_workflow_by_description(user_input, llm_provider)
+            
+            if selected_workflow:
+                # Подтверждение выбора
+                workflow_info = next((w for w in workflows if w['name'] == selected_workflow), None)
+                if workflow_info:
+                    console.print(f"\nПредлагаемый workflow: [bold]{selected_workflow}[/bold]")
+                    console.print(f"Описание: {workflow_info['description']}")
+                    
+                    if Confirm.ask("Подтвердить выбор?"):
+                        # Запрос ID задачи
+                        task_id = Prompt.ask("ID задачи")
+                        
+                        console.print(f"Запуск workflow: {selected_workflow}", style="green")
+                        console.print(f"Задача: {task_id} - {user_input}")
+                        
+                        # TODO: Реальный запуск workflow
+                        console.print("Workflow запущен (заглушка)", style="yellow")
+                        return
+            
+            # Если LLM не смог выбрать, показать ручной выбор
+            console.print("Не удалось автоматически выбрать workflow. Выберите вручную:", style="yellow")
+            
+        except Exception as e:
+            console.print(f"Ошибка при автоматическом выборе: {e}", style="yellow")
+            console.print("Выберите workflow вручную:")
         
-        console.print(table)
+        # Ручной выбор
+        for i, workflow in enumerate(workflows, 1):
+            console.print(f"{i}. {workflow['name']}: {workflow['description']}")
         
-        # Выбор workflow
         choice = Prompt.ask(
             "Выберите workflow", 
             choices=[str(i) for i in range(1, len(workflows) + 1)]
         )
         
-        selected_workflow = workflows[int(choice) - 1]
-        
-        # Запрос деталей задачи
+        selected_workflow = workflows[int(choice) - 1]['name']
         task_id = Prompt.ask("ID задачи")
-        task_description = Prompt.ask("Описание задачи")
         
         console.print(f"Запуск workflow: {selected_workflow}", style="green")
-        console.print(f"Задача: {task_id} - {task_description}")
+        console.print(f"Задача: {task_id} - {user_input}")
         
         # TODO: Реальный запуск workflow
         console.print("Workflow запущен (заглушка)", style="yellow")
@@ -175,38 +268,27 @@ class SimpleInteractiveCLI:
         table = Table(title="Агенты")
         table.add_column("Имя", style="cyan")
         table.add_column("Роль", style="magenta")
-        table.add_column("Статус", style="green")
-        table.add_column("Модель", style="blue")
+        table.add_column("Описание", style="green")
         
         for agent in agents:
             table.add_row(
-                agent.name,
-                agent.role,
-                agent.status.value,
-                agent.llm_model
+                agent.get("name", ""),
+                agent.get("role", ""),
+                agent.get("description", "")
             )
         
         console.print(table)
     
     def create_agent(self):
         """Создать нового агента"""
-        console.print("Создание нового агента", style="bold")
-        
         name = Prompt.ask("Имя агента")
         role = Prompt.ask("Роль агента")
         description = Prompt.ask("Описание агента")
-        llm_model = Prompt.ask("LLM модель", default="qwen-code")
         
         try:
-            agent = self.agent_manager.create_agent(
-                name=name,
-                role=role,
-                description=description,
-                capabilities=[],
-                llm_model=llm_model
-            )
-            console.print(f"Агент {name} создан успешно", style="green")
-        except ValueError as e:
+            self.agent_manager.create_agent(name, role, description)
+            console.print(f"Агент '{name}' создан", style="green")
+        except Exception as e:
             console.print(f"Ошибка создания агента: {e}", style="red")
     
     def delete_agent(self):
@@ -217,32 +299,33 @@ class SimpleInteractiveCLI:
             console.print("Нет агентов для удаления", style="yellow")
             return
         
-        console.print("Доступные агенты:")
+        # Показать список для выбора
         for i, agent in enumerate(agents, 1):
-            console.print(f"{i}. {agent.name} ({agent.role})")
+            console.print(f"{i}. {agent.get('name', '')}")
         
         choice = Prompt.ask(
             "Выберите агента для удаления",
             choices=[str(i) for i in range(1, len(agents) + 1)]
         )
         
-        agent_to_delete = agents[int(choice) - 1]
+        agent_name = agents[int(choice) - 1].get("name", "")
         
-        if Confirm.ask(f"Удалить агента {agent_to_delete.name}?"):
-            if self.agent_manager.delete_agent(agent_to_delete.name):
-                console.print(f"Агент {agent_to_delete.name} удален", style="green")
-            else:
-                console.print("Ошибка удаления агента", style="red")
+        if Confirm.ask(f"Удалить агента '{agent_name}'?"):
+            try:
+                self.agent_manager.delete_agent(agent_name)
+                console.print(f"Агент '{agent_name}' удален", style="green")
+            except Exception as e:
+                console.print(f"Ошибка удаления агента: {e}", style="red")
     
     def show_settings(self):
         """Показать настройки"""
         settings = self.settings_manager.settings
         
-        console.print(Panel("Текущие настройки", style="blue"))
+        console.print("\n" + "="*30)
+        console.print("Настройки FlowCraft", style="bold")
         console.print(f"Язык: {settings.language}")
         console.print(f"Дешевая модель: {settings.llm.cheap_model}")
         console.print(f"Дорогая модель: {settings.llm.expensive_model}")
-        console.print(f"Директория workflow: {settings.workflows_dir}")
+        console.print(f"Каталог workflow: {settings.workflows_dir}")
         console.print(f"MCP серверов: {len(settings.mcp_servers)}")
-        console.print(f"Правил доверия: {len(settings.trust_rules)}")
-        console.print(f"Агентов: {len(settings.agents)}")
+        console.print(f"Агентов: {len(self.agent_manager.agents)}")

@@ -15,6 +15,7 @@ from core.settings import SettingsManager
 from core.trust import TrustManager
 from agents.manager import AgentManager
 from workflows.loader import WorkflowLoader
+from workflows.manager import WorkflowManager
 from core.interactive_cli import SimpleInteractiveCLI
 from tools.filesystem import FileSystemTools
 from tools.shell import ShellTools
@@ -36,6 +37,7 @@ def main(config, debug):
         trust_manager = TrustManager(settings_manager)
         agent_manager = AgentManager(settings_manager)
         workflow_loader = WorkflowLoader(settings_manager.settings.workflows_dir)
+        workflow_manager = WorkflowManager(settings_manager.settings.workflows_dir)
         mcp_manager = MCPManager(settings_manager.settings)
         
         # Инициализация инструментов
@@ -51,7 +53,7 @@ def main(config, debug):
             console.print(f"MCP серверов: {len(mcp_manager.servers)}")
         
         # Запуск интерактивного CLI
-        cli = SimpleInteractiveCLI(settings_manager, agent_manager, workflow_loader, mcp_manager)
+        cli = SimpleInteractiveCLI(settings_manager, agent_manager, workflow_loader, mcp_manager, workflow_manager)
         cli.start()
         
     except Exception as e:
