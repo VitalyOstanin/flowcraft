@@ -1,0 +1,108 @@
+# Пример конфигурации агентов для FlowCraft
+agents:
+  code-reviewer:
+    role: "Code Reviewer"
+    description: "Специализированный агент для анализа кода, выявления проблем и предложения улучшений"
+    capabilities:
+      - "static_analysis"
+      - "security_check"
+      - "performance_analysis"
+      - "code_style_check"
+    llm_model: "qwen3-coder-plus"
+    status: "enabled"
+    workflow_enabled:
+      - "feature-development"
+      - "bug-fix"
+      - "code-refactoring"
+
+  security-analyst:
+    role: "Security Analyst"
+    description: "Агент для анализа безопасности кода и инфраструктуры"
+    capabilities:
+      - "vulnerability_scan"
+      - "dependency_check"
+      - "security_best_practices"
+      - "threat_modeling"
+    llm_model: "qwen3-coder-plus"
+    status: "enabled"
+    workflow_enabled:
+      - "feature-development"
+      - "security-audit"
+      - "incident-analysis"
+
+  test-engineer:
+    role: "Test Engineer"
+    description: "Агент для создания и выполнения тестов"
+    capabilities:
+      - "unit_testing"
+      - "integration_testing"
+      - "test_automation"
+      - "coverage_analysis"
+    llm_model: "kiro-cli"
+    status: "enabled"
+    workflow_enabled:
+      - "feature-development"
+      - "bug-fix"
+      - "testing-workflow"
+
+  devops-engineer:
+    role: "DevOps Engineer"
+    description: "Агент для управления инфраструктурой и деплоем"
+    capabilities:
+      - "infrastructure_as_code"
+      - "ci_cd_pipeline"
+      - "monitoring_setup"
+      - "deployment_automation"
+    llm_model: "qwen3-coder-plus"
+    status: "enabled"
+    workflow_enabled:
+      - "deployment"
+      - "infrastructure-setup"
+      - "incident-analysis"
+
+  documentation-writer:
+    role: "Documentation Writer"
+    description: "Агент для создания и поддержки документации"
+    capabilities:
+      - "api_documentation"
+      - "user_guides"
+      - "technical_writing"
+      - "markdown_formatting"
+    llm_model: "kiro-cli"
+    status: "disabled"  # Отключен глобально
+    workflow_enabled: []
+
+  performance-analyst:
+    role: "Performance Analyst"
+    description: "Агент для анализа производительности и оптимизации"
+    capabilities:
+      - "performance_profiling"
+      - "bottleneck_analysis"
+      - "optimization_suggestions"
+      - "load_testing"
+    llm_model: "qwen3-coder-plus"
+    status: "enabled"
+    workflow_enabled:
+      - "performance-optimization"
+      - "feature-development"
+
+# Настройки MCP серверов (для сравнения)
+mcp_servers:
+  - name: "postgres-dev"
+    command: "mcp-server-postgres"
+    args: ["--host", "localhost", "--port", "5432", "--database", "dev_db"]
+  
+  - name: "redis-cache"
+    command: "mcp-server-redis"
+    args: ["--host", "localhost", "--port", "6379"]
+
+# Настройки доверия команд
+trust_rules:
+  always:
+    - "git status"
+    - "git diff"
+    - "ls -la"
+  
+  session_only:
+    - "npm install"
+    - "pip install"

@@ -10,9 +10,10 @@
 6. [Система доверия команд](#система-доверия-команд)
 7. [Workflow как граф состояний](#workflow-как-граф-состояний)
 8. [MCP менеджер](#mcp-менеджер)
-9. [Интерактивный CLI](#интерактивный-cli)
-10. [Система команд управления](#система-команд-управления)
-11. [Преимущества архитектуры](#преимущества-архитектуры)
+9. [Менеджер агентов](#менеджер-агентов)
+10. [Интерактивный CLI](#интерактивный-cli)
+11. [Система команд управления](#система-команд-управления)
+12. [Преимущества архитектуры](#преимущества-архитектуры)
 12. [Пример workflow](#пример-workflow)
 13. [Исходная постановка задачи](#исходная-постановка-задачи)
 
@@ -44,6 +45,7 @@ flowcraft/
 │   ├── agents/
 │   │   ├── roles.py            # Определение ролей
 │   │   ├── coordinator.py      # Координация агентов
+│   │   ├── manager.py          # Менеджер агентов (CRUD, enable/disable)
 │   │   └── llm_router.py       # Выбор модели по сложности
 │   ├── tools/
 │   │   ├── filesystem.py       # Файловые операции
@@ -393,6 +395,178 @@ class MCPManager:
         return next((s for s in self.global_servers if s["name"] == name), None)
 ```
 
+### Менеджер агентов
+
+```python
+from typing import Dict, List, Optional, Set
+from dataclasses import dataclass, field
+from enum import Enum
+import yaml
+
+class AgentStatus(Enum):
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+
+@dataclass
+class Agent:
+    name: str
+    role: str
+    description: str
+    capabilities: List[str]
+    llm_model: str
+    status: AgentStatus = AgentStatus.ENABLED
+    workflow_enabled: Set[str] = field(default_factory=set)
+    
+class AgentManager:
+    def __init__(self, settings_path: str = "settings.yaml"):
+        self.settings_path = settings_path
+        self.agents: Dict[str, Agent] = {}
+        self.load_agents()
+    
+    def create_agent(self, name: str, role: str, description: str, 
+                    capabilities: List[str], llm_model: str) -> Agent:
+        """Создать нового агента"""
+        if name in self.agents:
+            raise ValueError(f"Агент {name} уже существует")
+        
+        agent = Agent(
+            name=name,
+            role=role, 
+            description=description,
+            capabilities=capabilities,
+            llm_model=llm_model
+        )
+        
+        self.agents[name] = agent
+        self.save_agents()
+        return agent
+    
+    def get_agent(self, name: str) -> Optional[Agent]:
+        """Получить агента по имени"""
+        return self.agents.get(name)
+    
+    def update_agent(self, name: str, **kwargs) -> Agent:
+        """Обновить агента"""
+        if name not in self.agents:
+            raise ValueError(f"Агент {name} не найден")
+        
+        agent = self.agents[name]
+        for key, value in kwargs.items():
+            if hasattr(agent, key):
+                setattr(agent, key, value)
+        
+        self.save_agents()
+        return agent
+    
+    def delete_agent(self, name: str) -> bool:
+        """Удалить агента"""
+        if name not in self.agents:
+            return False
+        
+        del self.agents[name]
+        self.save_agents()
+        return True
+    
+    def list_agents(self, status: Optional[AgentStatus] = None) -> List[Agent]:
+        """Список агентов с фильтрацией по статусу"""
+        agents = list(self.agents.values())
+        if status:
+            agents = [a for a in agents if a.status == status]
+        return agents
+    
+    def enable_agent_globally(self, name: str) -> bool:
+        """Глобально включить агента"""
+        if name not in self.agents:
+            return False
+        
+        self.agents[name].status = AgentStatus.ENABLED
+        self.save_agents()
+        return True
+    
+    def disable_agent_globally(self, name: str) -> bool:
+        """Глобально отключить агента"""
+        if name not in self.agents:
+            return False
+        
+        self.agents[name].status = AgentStatus.DISABLED
+        # Отключить во всех workflow
+        self.agents[name].workflow_enabled.clear()
+        self.save_agents()
+        return True
+    
+    def enable_agent_for_workflow(self, agent_name: str, workflow_name: str) -> bool:
+        """Включить агента для конкретного workflow"""
+        if agent_name not in self.agents:
+            return False
+        
+        agent = self.agents[agent_name]
+        if agent.status == AgentStatus.DISABLED:
+            return False  # Нельзя включить в workflow если глобально отключен
+        
+        agent.workflow_enabled.add(workflow_name)
+        self.save_agents()
+        return True
+    
+    def disable_agent_for_workflow(self, agent_name: str, workflow_name: str) -> bool:
+        """Отключить агента для конкретного workflow"""
+        if agent_name not in self.agents:
+            return False
+        
+        self.agents[agent_name].workflow_enabled.discard(workflow_name)
+        self.save_agents()
+        return True
+    
+    def get_enabled_agents_for_workflow(self, workflow_name: str) -> List[Agent]:
+        """Получить список включенных агентов для workflow"""
+        return [
+            agent for agent in self.agents.values()
+            if agent.status == AgentStatus.ENABLED and 
+               workflow_name in agent.workflow_enabled
+        ]
+    
+    def load_agents(self):
+        """Загрузить агентов из настроек"""
+        try:
+            with open(self.settings_path, 'r', encoding='utf-8') as f:
+                settings = yaml.safe_load(f) or {}
+            
+            agents_data = settings.get('agents', {})
+            for name, data in agents_data.items():
+                self.agents[name] = Agent(
+                    name=name,
+                    role=data['role'],
+                    description=data['description'],
+                    capabilities=data['capabilities'],
+                    llm_model=data['llm_model'],
+                    status=AgentStatus(data.get('status', 'enabled')),
+                    workflow_enabled=set(data.get('workflow_enabled', []))
+                )
+        except FileNotFoundError:
+            pass
+    
+    def save_agents(self):
+        """Сохранить агентов в настройки"""
+        try:
+            with open(self.settings_path, 'r', encoding='utf-8') as f:
+                settings = yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            settings = {}
+        
+        settings['agents'] = {}
+        for name, agent in self.agents.items():
+            settings['agents'][name] = {
+                'role': agent.role,
+                'description': agent.description,
+                'capabilities': agent.capabilities,
+                'llm_model': agent.llm_model,
+                'status': agent.status.value,
+                'workflow_enabled': list(agent.workflow_enabled)
+            }
+        
+        with open(self.settings_path, 'w', encoding='utf-8') as f:
+            yaml.dump(settings, f, default_flow_style=False, allow_unicode=True)
+```
+
 ### Интерактивный CLI
 
 ```python
@@ -411,11 +585,12 @@ class InteractiveCLI:
         self.workflows = {}
         self.command_history = InMemoryHistory()
         self.mcp_manager = MCPManager()
+        self.agent_manager = AgentManager()
         self.llm_router = LLMRouter()
         
         # Автодополнение для команд
         self.command_completer = WordCompleter([
-            '/mcp', '/trust', '/workflow', '/session', '/help', '/quit'
+            '/mcp', '/agent', '/trust', '/workflow', '/session', '/help', '/quit'
         ])
     
     def start_session(self):
@@ -479,6 +654,8 @@ class InteractiveCLI:
         
         if cmd == '/mcp':
             self.handle_mcp_command(parts[1:], workflow)
+        elif cmd == '/agent':
+            self.handle_agent_command(parts[1:], workflow)
         elif cmd == '/trust':
             self.handle_trust_command(parts[1:])
         elif cmd == '/workflow':
@@ -487,6 +664,69 @@ class InteractiveCLI:
             self.handle_session_command(parts[1:], workflow)
         elif cmd == '/help':
             self.show_help()
+    
+    def handle_agent_command(self, args: List[str], workflow):
+        """Обработка команд управления агентами"""
+        if not args:
+            return
+            
+        action = args[0]
+        
+        if action == 'create':
+            # /agent create code-reviewer --role "Code Reviewer" --desc "Анализ кода" --model qwen3-coder-plus
+            name = args[1]
+            role = args[args.index('--role') + 1]
+            desc = args[args.index('--desc') + 1]
+            model = args[args.index('--model') + 1]
+            
+            agent = self.agent_manager.create_agent(name, role, desc, [], model)
+            self.console.print(f"✅ Агент {name} создан", style="green")
+            
+        elif action == 'list':
+            status_filter = None
+            if '--status' in args:
+                status_filter = AgentStatus(args[args.index('--status') + 1])
+            
+            agents = self.agent_manager.list_agents(status_filter)
+            
+            table = Table(title="Агенты")
+            table.add_column("Имя", style="cyan")
+            table.add_column("Роль", style="magenta") 
+            table.add_column("Статус", style="green")
+            table.add_column("Workflow", style="yellow")
+            
+            for agent in agents:
+                workflows = ", ".join(agent.workflow_enabled) if agent.workflow_enabled else "Нет"
+                table.add_row(agent.name, agent.role, agent.status.value, workflows)
+            
+            self.console.print(table)
+            
+        elif action == 'enable':
+            name = args[1]
+            if '--workflow' in args:
+                workflow_name = args[args.index('--workflow') + 1]
+                self.agent_manager.enable_agent_for_workflow(name, workflow_name)
+                self.console.print(f"✅ Агент {name} включен для {workflow_name}", style="green")
+            else:
+                self.agent_manager.enable_agent_globally(name)
+                self.console.print(f"✅ Агент {name} включен глобально", style="green")
+                
+        elif action == 'disable':
+            name = args[1]
+            if '--workflow' in args:
+                workflow_name = args[args.index('--workflow') + 1]
+                self.agent_manager.disable_agent_for_workflow(name, workflow_name)
+                self.console.print(f"✅ Агент {name} отключен для {workflow_name}", style="green")
+            else:
+                self.agent_manager.disable_agent_globally(name)
+                self.console.print(f"✅ Агент {name} отключен глобально", style="green")
+                
+        elif action == 'delete':
+            name = args[1]
+            if self.agent_manager.delete_agent(name):
+                self.console.print(f"✅ Агент {name} удален", style="green")
+            else:
+                self.console.print(f"❌ Агент {name} не найден", style="red")
     
     def handle_mcp_command(self, args: List[str], workflow):
         """Обработка команд MCP"""
@@ -563,6 +803,19 @@ FlowCraft поддерживает команды управления во вр
 /mcp disable <name> --workflow <workflow>           # Отключить MCP для workflow
 ```
 
+#### Команды управления агентами
+```bash
+/agent create <name> --role <role> --desc "<description>" --model <llm_model>  # Создать агента
+/agent list [--status enabled|disabled]            # Список агентов
+/agent show <name>                                  # Показать детали агента
+/agent update <name> --role <role> --desc "<desc>" # Обновить агента
+/agent delete <name>                                # Удалить агента
+/agent enable <name>                                # Глобально включить агента
+/agent disable <name>                               # Глобально отключить агента
+/agent enable <name> --workflow <workflow>          # Включить агента для workflow
+/agent disable <name> --workflow <workflow>         # Отключить агента для workflow
+```
+
 #### Команды доверия
 ```bash
 /trust add "<pattern>" --level always               # Добавить доверенную команду
@@ -592,6 +845,20 @@ LLM: Предлагаю выполнить команду:
      Подтвердить выполнение? [y/n/modify]
 USER: y
 SYSTEM: ✅ MCP сервер db-test добавлен и запущен
+
+USER: нужен агент для код-ревью
+LLM: Предлагаю создать агента:
+     /agent create code-reviewer --role "Code Reviewer" --desc "Анализ кода и предложение улучшений" --model qwen3-coder-plus
+     Подтвердить создание? [y/n/modify]
+USER: y
+SYSTEM: ✅ Агент code-reviewer создан и включен глобально
+
+USER: включи агента только для этого workflow
+LLM: Предлагаю выполнить команду:
+     /agent enable code-reviewer --workflow feature-development
+     Подтвердить выполнение? [y/n/modify]
+USER: y
+SYSTEM: ✅ Агент code-reviewer включен для workflow feature-development
 ```
 
 ### Subgraphs для модульности
@@ -635,6 +902,7 @@ class FeatureDevWorkflow(BaseWorkflow):
 8. **Экономичность** - автоматический выбор модели по сложности задачи
 9. **Управляемость** - команды управления во время выполнения с LLM предложениями
 10. **Надежность** - версионирование состояния для безопасных обновлений
+11. **Динамическое управление агентами** - CRUD операции с агентами, гибкое включение/отключение глобально и по workflow
 
 ## Пример workflow
 
@@ -642,6 +910,10 @@ class FeatureDevWorkflow(BaseWorkflow):
 
 ```python
 class FeatureDevWorkflow(BaseWorkflow):
+    def __init__(self, config: Dict, thread_id: str):
+        super().__init__(config, thread_id)
+        self.agent_manager = AgentManager()
+    
     def _build_graph(self) -> StateGraph:
         workflow = StateGraph(WorkflowState)
         
@@ -681,6 +953,30 @@ class FeatureDevWorkflow(BaseWorkflow):
         
         return workflow.compile()
     
+    def code_review(self, state: WorkflowState) -> WorkflowState:
+        """Код-ревью с использованием агентов"""
+        # Получить включенных агентов для этого workflow
+        enabled_agents = self.agent_manager.get_enabled_agents_for_workflow("feature-development")
+        
+        # Найти агента с ролью Code Reviewer
+        code_reviewer = next(
+            (agent for agent in enabled_agents if agent.role == "Code Reviewer"), 
+            None
+        )
+        
+        if code_reviewer:
+            # Использовать специализированного агента
+            review_result = self.llm_router.route_to_model(
+                code_reviewer.llm_model,
+                f"Проведи код-ревью для: {state['task']}"
+            )
+        else:
+            # Использовать стандартный LLM Router
+            review_result = self.llm_router.analyze_code(state['task'])
+        
+        state["results"]["code_review"] = review_result
+        return state
+    
     def analyze_requirements(self, state: WorkflowState) -> WorkflowState:
         # Роль: аналитик
         # Инструменты: поиск файлов, чтение документации
@@ -703,11 +999,12 @@ class FeatureDevWorkflow(BaseWorkflow):
 3. **Rich CLI интерфейс** - красивый вывод и автодополнение команд
 4. **LLM Router** - автоматический выбор модели по сложности (qwen3-coder-plus vs kiro-cli)
 5. **Интеллектуальное планирование** - LLM предлагает пропуск этапов
-6. **Система команд управления** - динамическое управление MCP и workflow
+6. **Система команд управления** - динамическое управление MCP, агентов и workflow
 7. **LLM-инициированные команды** - AI предлагает команды с подтверждением
 8. **Переиспользуемые subgraphs** - модульные компоненты workflow
 9. **Workflow-специфичные MCP** - разные наборы серверов для разных задач
 10. **Улучшенная система доверия** - сессионные разрешения без сохранения
+11. **Менеджер агентов** - CRUD операции с агентами, гибкое управление включением/отключением
 
 ### Технические преимущества
 
