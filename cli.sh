@@ -1,13 +1,11 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
-# Поиск и активация виртуального окружения
-if [ -f ".venv/bin/activate" ]; then
-    source .venv/bin/activate
-elif [ -f "../.venv/bin/activate" ]; then
-    source ../.venv/bin/activate
-elif [ -f "$HOME/.venv/bin/activate" ]; then
-    source "$HOME/.venv/bin/activate"
+# Проверяем наличие uv
+if ! command -v uv &> /dev/null; then
+    echo "Ошибка: uv не установлен. Установите uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+    exit 1
 fi
 
-python cli.py "$@"
+# Запускаем через uv с зависимостями проекта
+uv run python cli.py "$@"

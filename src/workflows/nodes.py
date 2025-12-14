@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional, Callable
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from rich.console import Console
 
-from workflows.state import WorkflowState, AgentState, add_stage_output, mark_stage_failed, require_human_input
+from workflows.state import WorkflowState, add_stage_output, mark_stage_failed, require_human_input, create_agent_dict, agent_dict_to_state
 from core.trust import TrustManager
 from agents.manager import AgentManager
 
@@ -28,6 +28,15 @@ class BaseNode:
     
     def __call__(self, state: WorkflowState) -> WorkflowState:
         """Синхронная обертка для выполнения."""
+        # Проверяем тип входящего состояния
+        if isinstance(state, str):
+            # Если получили строку, создаем базовое состояние
+            from .state import create_initial_state
+            state = create_initial_state(state, "unknown")
+        elif not isinstance(state, dict):
+            # Если получили что-то другое, пытаемся преобразовать
+            raise ValueError(f"Неожиданный тип состояния: {type(state)}")
+        
         return asyncio.run(self.execute(state))
 
 
@@ -40,12 +49,24 @@ class StartNode(BaseNode):
     async def execute(self, state: WorkflowState) -> WorkflowState:
         """Инициализация workflow."""
         
-        console.print(f"Запуск workflow: {state['context'].metadata.get('workflow_name', 'Unknown')}")
-        console.print(f"Задача: {state['context'].task_description}")
+        # Проверяем и исправляем состояние если нужно
+        if not isinstance(state, dict) or "context" not in state:
+            from .state import create_initial_state
+            state = create_initial_state("Unknown task", "unknown")
+        
+        context = state.get("context", {})
+        
+        workflow_name = context.get("metadata", {}).get("workflow_name", "Unknown")
+        task_description = context.get("task_description", "Unknown task")
+        
+        console.print(f"Запуск workflow: {workflow_name}")
+        console.print(f"Задача: {task_description}")
         
         # Обновляем состояние
         new_state = state.copy()
         new_state["current_node"] = self.name
+        if "messages" not in new_state:
+            new_state["messages"] = []
         new_state["messages"].append(SystemMessage(content="Workflow инициализирован"))
         
         return new_state
@@ -60,24 +81,33 @@ class EndNode(BaseNode):
     async def execute(self, state: WorkflowState) -> WorkflowState:
         """Завершение workflow."""
         
-        context = state["context"]
+        # Проверяем и исправляем состояние если нужно
+        if not isinstance(state, dict) or "context" not in state:
+            from .state import create_initial_state
+            state = create_initial_state("Unknown task", "unknown")
+        
+        context = state.get("context", {})
+        
+        completed_stages = context.get("completed_stages", [])
+        failed_stages = context.get("failed_stages", [])
+        stage_outputs = context.get("stage_outputs", {})
         
         console.print("Workflow завершен")
-        console.print(f"Выполнено stages: {len(context.completed_stages)}")
-        console.print(f"Неуспешных stages: {len(context.failed_stages)}")
+        console.print(f"Выполнено stages: {len(completed_stages)}")
+        console.print(f"Неуспешных stages: {len(failed_stages)}")
         
-        if context.failed_stages:
-            console.print(f"Ошибки: {context.failed_stages}")
+        if failed_stages:
+            console.print(f"Ошибки: {failed_stages}")
         
         # Финализируем состояние
         new_state = state.copy()
         new_state["current_node"] = self.name
         new_state["finished"] = True
         new_state["result"] = {
-            "completed_stages": context.completed_stages,
-            "failed_stages": context.failed_stages,
-            "stage_outputs": context.stage_outputs,
-            "success": len(context.failed_stages) == 0
+            "completed_stages": completed_stages,
+            "failed_stages": failed_stages,
+            "stage_outputs": stage_outputs,
+            "success": len(failed_stages) == 0
         }
         
         return new_state
@@ -90,17 +120,38 @@ class AgentNode(BaseNode):
                  name: str,
                  agent_role: str,
                  stage_config: Dict[str, Any],
-                 agent_manager: AgentManager):
+                 agent_manager: AgentManager,
+                 is_last_stage: bool = False):
         super().__init__(name, stage_config.get("description", ""))
         self.agent_role = agent_role
         self.stage_config = stage_config
         self.agent_manager = agent_manager
         self.skippable = stage_config.get("skippable", False)
+        self.is_last_stage = is_last_stage
     
     async def execute(self, state: WorkflowState) -> WorkflowState:
         """Выполнение задачи агентом."""
         
         try:
+            # Проверяем и исправляем состояние если нужно
+            if not isinstance(state, dict):
+                from .state import create_initial_state
+                state = create_initial_state("Unknown task", "unknown")
+            
+            # Инициализируем отсутствующие поля
+            if "agents" not in state:
+                state["agents"] = {}
+            if "context" not in state:
+                state["context"] = {
+                    "task_description": "Unknown task",
+                    "current_stage": "",
+                    "completed_stages": [],
+                    "failed_stages": [],
+                    "stage_outputs": {},
+                    "user_inputs": {},
+                    "metadata": {}
+                }
+            
             console.print(f"Выполнение stage: {self.name}")
             console.print(f"Роль агента: {self.agent_role}")
             console.print(f"Описание: {self.description}")
@@ -117,6 +168,8 @@ class AgentNode(BaseNode):
             # Сохраняем результат
             new_state = add_stage_output(state, self.name, result)
             new_state["current_node"] = self.name
+            if "messages" not in new_state:
+                new_state["messages"] = []
             new_state["messages"].append(AIMessage(content=f"Stage {self.name} выполнен"))
             
             console.print(f"Stage {self.name} завершен успешно")
@@ -134,25 +187,37 @@ class AgentNode(BaseNode):
             else:
                 return mark_stage_failed(state, self.name, str(e))
     
-    async def _get_or_create_agent(self, state: WorkflowState) -> AgentState:
+    async def _get_or_create_agent(self, state: WorkflowState) -> Dict[str, Any]:
         """Получение или создание агента для роли."""
         
         # Ищем существующего агента с нужной ролью
         for agent in state["agents"].values():
-            if agent.role == self.agent_role:
+            if agent.get("role") == self.agent_role:
                 return agent
         
         # Создаем нового агента
         agent_name = f"{self.agent_role}_{len(state['agents'])}"
         
-        # Получаем конфигурацию роли из stage_config
-        role_config = next(
-            (role for role in self.stage_config.get("roles", []) 
-             if role.get("name") == self.agent_role),
-            {"name": self.agent_role, "prompt": f"Ты {self.agent_role}"}
-        )
+        # Получаем конфигурацию роли из workflow config
+        # Сначала ищем в stage_config, потом в общих ролях workflow
+        role_config = None
         
-        agent = AgentState(
+        # Проверяем roles в stage_config
+        stage_roles = self.stage_config.get("roles", [])
+        for role in stage_roles:
+            if isinstance(role, dict) and role.get("name") == self.agent_role:
+                role_config = role
+                break
+            elif isinstance(role, str) and role == self.agent_role:
+                # Если роль задана строкой, создаем базовую конфигурацию
+                role_config = {"name": self.agent_role, "prompt": f"Ты {self.agent_role}"}
+                break
+        
+        # Если не найдено, создаем базовую конфигурацию
+        if not role_config:
+            role_config = {"name": self.agent_role, "prompt": f"Ты {self.agent_role}"}
+        
+        agent = create_agent_dict(
             name=agent_name,
             role=self.agent_role,
             current_task=self.name,
@@ -171,32 +236,32 @@ class AgentNode(BaseNode):
         context = state["context"]
         
         return {
-            "task_description": context.task_description,
+            "task_description": context.get("task_description", ""),
             "current_stage": self.name,
             "stage_description": self.description,
-            "completed_stages": context.completed_stages,
-            "stage_outputs": context.stage_outputs,
-            "user_inputs": context.user_inputs,
-            "messages": [msg.content for msg in state["messages"][-5:]]  # Последние 5 сообщений
+            "completed_stages": context.get("completed_stages", []),
+            "stage_outputs": context.get("stage_outputs", {}),
+            "user_inputs": context.get("user_inputs", {}),
+            "messages": [msg.content for msg in state.get("messages", [])[-5:]]  # Последние 5 сообщений
         }
     
     async def _execute_agent_task(self, 
-                                agent: AgentState, 
+                                agent: Dict[str, Any], 
                                 context: Dict[str, Any], 
                                 state: WorkflowState) -> Dict[str, Any]:
         """Выполнение задачи агентом."""
         
         # Пока что заглушка - в будущем здесь будет вызов LLM
-        console.print(f"Агент {agent.name} обрабатывает задачу...")
+        console.print(f"Агент {agent['name']} обрабатывает задачу...")
         
         # Имитируем работу агента
         await asyncio.sleep(1)
         
         return {
-            "agent": agent.name,
+            "agent": agent["name"],
             "stage": self.name,
             "status": "completed",
-            "output": f"Результат выполнения stage {self.name} агентом {agent.name}",
+            "output": f"Результат выполнения stage {self.name} агентом {agent['name']}",
             "context_used": context
         }
 

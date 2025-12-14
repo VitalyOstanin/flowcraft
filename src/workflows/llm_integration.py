@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional, Union
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from rich.console import Console
 
-from .state import WorkflowState, AgentState
+from .state import WorkflowState, AgentState, agent_dict_to_state
 from llm.qwen_code import QwenCodeProvider
 from core.settings import Settings
 
@@ -35,35 +35,38 @@ class WorkflowLLMManager:
         # TODO: Добавить другие провайдеры (kiro-cli, etc.)
     
     async def execute_agent_task(self, 
-                               agent: AgentState,
+                               agent: Dict[str, Any],
                                context: Dict[str, Any],
                                state: WorkflowState) -> Dict[str, Any]:
         """Выполнение задачи агента через LLM."""
         
         try:
+            # Преобразуем словарь агента в AgentState для работы с LLM
+            agent_state = agent_dict_to_state(agent)
+            
             # Выбираем провайдера для агента
-            provider = self._select_provider(agent, context)
+            provider = self._select_provider(agent_state, context)
             
             if provider is None:
-                raise ValueError(f"Нет доступного LLM провайдера для агента {agent.name}")
+                raise ValueError(f"Нет доступного LLM провайдера для агента {agent_state.name}")
             
             # Подготавливаем промпт
-            messages = self._prepare_messages(agent, context, state)
+            messages = self._prepare_messages(agent_state, context, state)
             
             # Выполняем запрос к LLM
-            console.print(f"Агент {agent.name} обращается к LLM...")
+            console.print(f"Агент {agent_state.name} обращается к LLM...")
             
             response = await provider.generate_async(messages)
             
             # Обрабатываем ответ
-            result = self._process_llm_response(agent, response, context)
+            result = self._process_llm_response(agent_state, response, context)
             
-            console.print(f"Агент {agent.name} получил ответ от LLM")
+            console.print(f"Агент {agent_state.name} получил ответ от LLM")
             
             return result
             
         except Exception as e:
-            console.print(f"Ошибка выполнения задачи агента {agent.name}: {str(e)}")
+            console.print(f"Ошибка выполнения задачи агента {agent.get('name', 'unknown')}: {str(e)}")
             raise
     
     def _select_provider(self, agent: AgentState, context: Dict[str, Any]) -> Optional[Any]:
@@ -195,7 +198,7 @@ class WorkflowLLMManager:
         return "\n\n".join(context_parts)
     
     def _process_llm_response(self, 
-                            agent: AgentState, 
+                            agent: Dict[str, Any], 
                             response: str,
                             context: Dict[str, Any]) -> Dict[str, Any]:
         """Обработка ответа LLM."""

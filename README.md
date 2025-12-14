@@ -74,12 +74,20 @@ brew install ripgrep fd           # macOS
 ### 1. Тестирование установки
 
 ```bash
-python test_cli.py
+uv run python test_cli.py
 ```
 
 ### 2. Запуск FlowCraft
 
 ```bash
+# Рекомендуемый способ - через uv wrapper
+./cli.sh
+
+# Альтернативно - напрямую через uv
+uv run python cli.py
+
+# Или через активированное окружение
+source ~/.venv/bin/activate
 python cli.py
 ```
 

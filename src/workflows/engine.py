@@ -63,6 +63,8 @@ class WorkflowEngine:
                 workflow_name=workflow_name
             )
             
+            console.print(f"Начальное состояние: {initial_state}")
+            
             # Настраиваем конфигурацию выполнения
             config = {
                 "configurable": {
@@ -83,7 +85,18 @@ class WorkflowEngine:
                     graph, initial_state, config, progress, task
                 )
             
+            console.print(f"Финальное состояние: {result_state}")
+            
             # Возвращаем результат
+            if result_state is None:
+                console.print("Workflow завершен с ошибками: состояние не получено")
+                return {
+                    "success": False,
+                    "error": "Workflow state is None",
+                    "completed_stages": [],
+                    "failed_stages": []
+                }
+            
             result = result_state.get("result", {})
             
             if result.get("success", False):
@@ -117,17 +130,15 @@ class WorkflowEngine:
         # Создаем новый граф
         graph = StateGraph(WorkflowState)
         
-        # Добавляем стартовый узел
-        start_node = StartNode()
-        graph.add_node("start", start_node)
-        
-        # Добавляем финальный узел
+        # Добавляем явный EndNode
         end_node = EndNode()
-        graph.add_node("end", end_node)
+        graph.add_node("workflow_end", end_node)
         
         # Обрабатываем stages из конфигурации
         stages = workflow_config.get("stages", [])
-        previous_stage = "start"
+        previous_stage = None
+        first_stage = None
+        last_stage = None
         
         for i, stage_config in enumerate(stages):
             stage_name = stage_config.get("name", f"stage_{i}")
@@ -139,21 +150,33 @@ class WorkflowEngine:
                 # Обычный stage с агентами
                 await self._add_stage_to_graph(graph, stage_config, stage_name)
             
-            # Добавляем связь с предыдущим stage
-            if previous_stage:
+            # Запоминаем первый и последний stage
+            if first_stage is None:
+                first_stage = stage_name
+            last_stage = stage_name
+            
+            # Добавляем связь с предыдущим stage (кроме первого)
+            if previous_stage is not None:
                 graph.add_edge(previous_stage, stage_name)
             
             previous_stage = stage_name
         
-        # Связываем последний stage с концом
-        if previous_stage and previous_stage != "start":
-            graph.add_edge(previous_stage, "end")
+        # Добавляем обязательную связь от START к первому узлу
+        if first_stage:
+            graph.add_edge(START, first_stage)
+            # Связываем последний stage с нашим EndNode
+            graph.add_edge(last_stage, "workflow_end")
+            # Связываем EndNode с END
+            graph.add_edge("workflow_end", END)
+            console.print(f"Создан граф: START -> {first_stage} -> ... -> {last_stage} -> workflow_end -> END")
         else:
-            # Если нет stages, связываем start с end
-            graph.add_edge("start", "end")
+            # Если нет stages, связываем START с EndNode
+            graph.add_edge(START, "workflow_end")
+            graph.add_edge("workflow_end", END)
+            console.print("Создан граф: START -> workflow_end -> END")
         
-        # Компилируем граф с checkpointer
-        compiled_graph = graph.compile(checkpointer=self.checkpointer)
+        # Компилируем граф без checkpointer для упрощения
+        compiled_graph = graph.compile()
         
         # Кэшируем
         self._compiled_graphs[workflow_name] = compiled_graph
@@ -215,24 +238,32 @@ class WorkflowEngine:
         
         current_state = initial_state
         
-        async for state_update in graph.astream(initial_state, config):
-            # Обновляем состояние
-            for node_name, node_state in state_update.items():
-                current_state = node_state
-                
-                # Обновляем прогресс
-                progress.update(task_id, description=f"Выполняется: {node_name}")
-                
-                # Проверяем, нужен ли пользовательский ввод
-                if current_state.get("human_input_required", False):
-                    current_state = await self._handle_human_input(current_state, graph, config)
-                
-                # Проверяем завершение
-                if current_state.get("finished", False):
-                    progress.update(task_id, description="Завершено")
-                    return current_state
-        
-        return current_state
+        try:
+            async for state_update in graph.astream(initial_state, config):
+                # Обновляем состояние
+                for node_name, node_state in state_update.items():
+                    if node_state is not None:
+                        current_state = node_state
+                    
+                    # Обновляем прогресс
+                    progress.update(task_id, description=f"Выполняется: {node_name}")
+                    
+                    # Проверяем, нужен ли пользовательский ввод
+                    if current_state and current_state.get("human_input_required", False):
+                        current_state = await self._handle_human_input(current_state, graph, config)
+                    
+                    # Проверяем завершение
+                    if current_state and current_state.get("finished", False):
+                        progress.update(task_id, description="Завершено")
+                        return current_state
+            
+            return current_state
+            
+        except Exception as e:
+            console.print(f"Ошибка в _execute_with_human_loop: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     async def _handle_human_input(self, 
                                 state: WorkflowState,
