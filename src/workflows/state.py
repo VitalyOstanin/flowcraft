@@ -53,12 +53,27 @@ class WorkflowState(TypedDict):
     
     # Данные для human-in-the-loop
     human_input_prompt: Optional[str]
+    
+    # === НОВЫЕ ПОЛЯ ДЛЯ МНОГОИТЕРАЦИОННОГО ВЗАИМОДЕЙСТВИЯ ===
+    
+    # Номер итерации в текущем stage
+    stage_iteration: int
+    
+    # История сообщений в рамках текущего stage
+    stage_conversation: List[Dict[str, Any]]
+    
+    # Флаг ожидания подтверждения
+    awaiting_confirmation: bool
+    
+    # Максимальное количество итераций для stage
+    max_stage_iterations: int
 
 
 def create_initial_state(
     task_description: str,
     workflow_name: str,
-    agents: Optional[Dict[str, Dict[str, Any]]] = None
+    agents: Optional[Dict[str, Dict[str, Any]]] = None,
+    max_stage_iterations: int = 5
 ) -> WorkflowState:
     """Создание начального состояния workflow."""
     
@@ -80,7 +95,12 @@ def create_initial_state(
         result=None,
         errors=[],
         human_input_required=False,
-        human_input_prompt=None
+        human_input_prompt=None,
+        # Новые поля
+        stage_iteration=0,
+        stage_conversation=[],
+        awaiting_confirmation=False,
+        max_stage_iterations=max_stage_iterations
     )
 
 
@@ -95,7 +115,7 @@ def update_context(state: WorkflowState, **updates) -> WorkflowState:
 
 
 def add_stage_output(state: WorkflowState, stage: str, output: Any) -> WorkflowState:
-    """Добавление результата выполнен��я stage."""
+    """Добавление результата выполнения stage."""
     
     context = state["context"]
     new_stage_outputs = context["stage_outputs"].copy()
@@ -146,6 +166,117 @@ def add_user_input(state: WorkflowState, key: str, value: Any) -> WorkflowState:
     new_state["human_input_prompt"] = None
     
     return new_state
+
+
+# === НОВЫЕ ФУНКЦИИ ДЛЯ МНОГОИТЕРАЦИОННОГО ВЗАИМОДЕЙСТВИЯ ===
+
+def start_stage_iteration(state: WorkflowState, stage_name: str) -> WorkflowState:
+    """Начало новой итерации stage."""
+    
+    new_state = state.copy()
+    new_state["stage_iteration"] = state["stage_iteration"] + 1
+    new_state["awaiting_confirmation"] = False
+    
+    # Обновляем контекст
+    new_state = update_context(new_state, current_stage=stage_name)
+    
+    return new_state
+
+
+def add_stage_message(state: WorkflowState, role: str, content: str, metadata: Optional[Dict] = None) -> WorkflowState:
+    """Добавление сообщения в историю stage."""
+    
+    new_state = state.copy()
+    new_conversation = state["stage_conversation"].copy()
+    
+    message = {
+        "role": role,  # "llm", "user", "system"
+        "content": content,
+        "iteration": state["stage_iteration"],
+        "timestamp": None,  # Можно добавить timestamp
+        "metadata": metadata or {}
+    }
+    
+    new_conversation.append(message)
+    new_state["stage_conversation"] = new_conversation
+    
+    return new_state
+
+
+def request_confirmation(state: WorkflowState, prompt: str, data: Optional[Dict] = None) -> WorkflowState:
+    """Запрос подтверждения от пользователя."""
+    
+    new_state = state.copy()
+    new_state["awaiting_confirmation"] = True
+    new_state["human_input_required"] = True
+    new_state["human_input_prompt"] = prompt
+    
+    # Добавляем сообщение в историю stage
+    new_state = add_stage_message(new_state, "system", f"CONFIRMATION_REQUEST: {prompt}", 
+                                 {"data": data})
+    
+    return new_state
+
+
+def process_user_confirmation(state: WorkflowState, user_response: str) -> WorkflowState:
+    """Обработка ответа пользователя на запрос подтверждения."""
+    
+    new_state = state.copy()
+    new_state["awaiting_confirmation"] = False
+    new_state["human_input_required"] = False
+    new_state["human_input_prompt"] = None
+    
+    # Добавляем ответ пользователя в историю
+    new_state = add_stage_message(new_state, "user", user_response)
+    
+    return new_state
+
+
+def complete_stage_iteration(state: WorkflowState, stage_name: str, output: Any, is_final: bool = False) -> WorkflowState:
+    """Завершение итерации stage."""
+    
+    new_state = state.copy()
+    
+    if is_final:
+        # Финальное завершение stage
+        new_state = add_stage_output(new_state, stage_name, output)
+        new_state["stage_iteration"] = 0
+        new_state["stage_conversation"] = []
+        new_state["awaiting_confirmation"] = False
+    else:
+        # Промежуточное завершение итерации
+        new_state = add_stage_message(new_state, "llm", str(output), {"iteration_complete": True})
+    
+    return new_state
+
+
+def can_continue_stage_iteration(state: WorkflowState) -> bool:
+    """Проверка возможности продолжения итераций stage."""
+    
+    return state["stage_iteration"] < state["max_stage_iterations"]
+
+
+def get_stage_conversation_context(state: WorkflowState) -> str:
+    """Получение контекста разговора в рамках stage для LLM."""
+    
+    conversation = state["stage_conversation"]
+    if not conversation:
+        return ""
+    
+    context_parts = [f"=== ИСТОРИЯ ВЗАИМОДЕЙСТВИЯ В STAGE (итерация {state['stage_iteration']}) ==="]
+    
+    for msg in conversation:
+        role_label = {
+            "llm": "LLM",
+            "user": "ПОЛЬЗОВАТЕЛЬ", 
+            "system": "СИСТЕМА"
+        }.get(msg["role"], msg["role"].upper())
+        
+        context_parts.append(f"{role_label}: {msg['content']}")
+    
+    context_parts.append("=== КОНЕЦ ИСТОРИИ ===")
+    
+    return "\n".join(context_parts)
 
 
 def create_agent_dict(name: str, role: str, current_task: Optional[str] = None,

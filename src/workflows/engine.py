@@ -50,8 +50,17 @@ class WorkflowEngine:
                              thread_id: Optional[str] = None) -> Dict[str, Any]:
         """Выполнение workflow."""
         
+        from core.logging import get_logger
+        logger = get_logger("workflow.engine")
+        
         workflow_name = workflow_config.get("name", "unknown")
         workflow_id = f"{workflow_name}_{asyncio.get_event_loop().time()}"
+        
+        logger.info(f"=== ЗАПУСК WORKFLOW ===")
+        logger.info(f"Workflow: {workflow_name}")
+        logger.info(f"ID: {workflow_id}")
+        logger.info(f"Задача: {task_description}")
+        logger.info(f"Конфигурация: {workflow_config}")
         
         console.print(f"Запуск workflow: {workflow_name}")
         console.print(f"Задача: {task_description}")
@@ -63,14 +72,19 @@ class WorkflowEngine:
         #         await self.mcp_manager.start_workflow_servers(workflow_id, mcp_servers)
         
         try:
+            logger.info("=== СОЗДАНИЕ ГРАФА ===")
             # Создаем граф из конфигурации
             graph = await self._build_graph_from_config(workflow_config)
+            logger.info(f"Граф создан: {graph}")
             
-            # Создаем начальное состояние
+            logger.info("=== СОЗДАНИЕ НАЧАЛЬНОГО СОСТОЯНИЯ ===")
+            # Создаем начальное состояние с поддержкой многоитерационного взаимодействия
             initial_state = create_initial_state(
                 task_description=task_description,
-                workflow_name=workflow_name
+                workflow_name=workflow_name,
+                max_stage_iterations=workflow_config.get("max_stage_iterations", 5)
             )
+            logger.info(f"Начальное состояние: {initial_state}")
             
             console.print(f"Начальное состояние: {initial_state}")
             
@@ -80,7 +94,9 @@ class WorkflowEngine:
                     "thread_id": thread_id or f"workflow_{workflow_name}_{asyncio.get_event_loop().time()}"
                 }
             }
+            logger.info(f"Конфигурация выполнения: {config}")
             
+            logger.info("=== НАЧАЛО ВЫПОЛНЕНИЯ WORKFLOW ===")
             # Выполняем workflow с прогресс-баром
             with Progress(
                 SpinnerColumn(),
@@ -94,11 +110,16 @@ class WorkflowEngine:
                     graph, initial_state, config, progress, task
                 )
             
+            logger.info(f"=== WORKFLOW ЗАВЕРШЕН ===")
+            logger.info(f"Финальное состояние: {result_state}")
+            
             console.print(f"Финальное состояние: {result_state}")
             
             # Возвращаем результат
             if result_state is None:
-                console.print("Workflow завершен с ошибками: состояние не получено")
+                error_msg = "Workflow завершен с ошибками: состояние не получено"
+                logger.error(error_msg)
+                console.print(error_msg)
                 return {
                     "success": False,
                     "error": "Workflow state is None",
@@ -109,11 +130,14 @@ class WorkflowEngine:
             result = result_state.get("result", {})
             
             if result.get("success", False):
+                logger.info("Workflow завершен успешно!")
                 console.print("Workflow завершен успешно!")
             else:
+                logger.warning("Workflow завершен с ошибками")
                 console.print("Workflow завершен с ошибками")
                 if result_state.get("errors"):
                     for error in result_state["errors"]:
+                        logger.error(f"Ошибка: {error}")
                         console.print(f"  {error}")
             
             return result
@@ -211,17 +235,17 @@ class WorkflowEngine:
         
         if agent:
             # Новый формат с agent
-            primary_role = agent
+            agent_name = agent
         elif roles:
             # Старый формат с roles
-            primary_role = roles[0] if isinstance(roles[0], str) else roles[0].get("name")
+            agent_name = roles[0] if isinstance(roles[0], str) else roles[0].get("name")
         else:
             raise ValueError(f"Stage {stage_name}: не указан агент или роли")
         
         # Создаем узел агента
         agent_node = AgentNode(
             name=stage_name,
-            agent_role=primary_role,
+            agent_name=agent_name,
             stage_config=stage_config,
             agent_manager=self.agent_manager,
             mcp_manager=self.mcp_manager
@@ -255,36 +279,184 @@ class WorkflowEngine:
                                      config: Dict[str, Any],
                                      progress: Progress,
                                      task_id) -> WorkflowState:
-        """Выполнение workflow с поддержкой human-in-the-loop."""
+        """Выполнение workflow с поддержкой human-in-the-loop и многоитерационного взаимодействия."""
+        
+        from core.logging import get_logger
+        logger = get_logger("workflow.engine")
+        
+        logger.info("=== НАЧАЛО ВЫПОЛНЕНИЯ С HUMAN LOOP ===")
         
         current_state = initial_state
+        max_iterations = 50  # Защита от бесконечных циклов
+        iteration = 0
         
         try:
-            async for state_update in graph.astream(initial_state, config):
-                # Обновляем состояние
-                for node_name, node_state in state_update.items():
-                    if node_state is not None:
-                        current_state = node_state
+            while iteration < max_iterations:
+                iteration += 1
+                logger.info(f"=== ИТЕРАЦИЯ WORKFLOW {iteration} ===")
+                
+                # Выполняем один шаг workflow
+                step_completed = False
+                async for state_update in graph.astream(current_state, config):
+                    logger.debug(f"State update: {state_update}")
                     
-                    # Обновляем прогресс
-                    progress.update(task_id, description=f"Выполняется: {node_name}")
+                    # Обновляем состояние
+                    for node_name, node_state in state_update.items():
+                        if node_state is not None:
+                            current_state = node_state
+                            logger.info(f"Узел {node_name} выполнен")
+                        
+                        # Обновляем прогресс
+                        progress.update(task_id, description=f"Выполняется: {node_name}")
+                        
+                        # Проверяем завершение workflow
+                        if current_state and current_state.get("finished", False):
+                            logger.info("Workflow завершен")
+                            progress.update(task_id, description="Завершено")
+                            return current_state
+                        
+                        # Проверяем, нужен ли пользовательский ввод
+                        if current_state and current_state.get("human_input_required", False):
+                            logger.info("Требуется взаимодействие с пользователем")
+                            
+                            # Обрабатываем многоитерационное взаимодействие
+                            current_state = await self._handle_human_input_with_iterations(
+                                current_state, progress, task_id
+                            )
+                            
+                            # Если пользователь отменил выполнение
+                            if current_state is None:
+                                logger.info("Выполнение отменено пользователем")
+                                return create_initial_state("Отменено", "cancelled")
+                            
+                            step_completed = True
+                            break
                     
-                    # Проверяем, нужен ли пользовательский ввод
-                    if current_state and current_state.get("human_input_required", False):
-                        current_state = await self._handle_human_input(current_state, graph, config)
-                    
-                    # Проверяем завершение
-                    if current_state and current_state.get("finished", False):
-                        progress.update(task_id, description="Завершено")
-                        return current_state
+                    if step_completed:
+                        break
+                
+                # Если не было обновлений состояния, выходим из цикла
+                if not step_completed:
+                    logger.info("Нет обновлений состояния, завершаем выполнение")
+                    break
+            
+            # Если достигли лимита итераций
+            if iteration >= max_iterations:
+                logger.warning(f"Достигнут лимит итераций workflow: {max_iterations}")
+                current_state["finished"] = True
+                current_state["result"] = {
+                    "success": False,
+                    "error": f"Превышен лимит итераций ({max_iterations})",
+                    "completed_stages": current_state.get("context", {}).get("completed_stages", []),
+                    "failed_stages": current_state.get("context", {}).get("failed_stages", [])
+                }
             
             return current_state
             
         except Exception as e:
+            logger.error(f"Ошибка в _execute_with_human_loop: {str(e)}")
             console.print(f"Ошибка в _execute_with_human_loop: {str(e)}")
             import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             traceback.print_exc()
             raise
+    
+    async def _handle_human_input_with_iterations(self, 
+                                                state: WorkflowState,
+                                                progress: Progress,
+                                                task_id) -> Optional[WorkflowState]:
+        """Обработка пользовательского ввода с поддержкой многоитерационного взаимодействия."""
+        
+        from core.logging import get_logger
+        logger = get_logger("workflow.engine")
+        
+        logger.info("=== ОБРАБОТКА ПОЛЬЗОВАТЕЛЬСКОГО ВВОДА ===")
+        
+        # Получаем промпт для пользователя
+        user_prompt = state.get("human_input_prompt", "Требуется ваш ввод")
+        
+        # Показываем контекст итерации если есть
+        if state.get("stage_iteration", 0) > 0:
+            iteration_info = f" (итерация {state['stage_iteration']})"
+            progress.update(task_id, description=f"Ожидание ответа пользователя{iteration_info}")
+        else:
+            progress.update(task_id, description="Ожидание ответа пользователя")
+        
+        # Показываем историю stage если есть
+        if state.get("stage_conversation"):
+            console.print("\n=== ИСТОРИЯ ВЗАИМОДЕЙСТВИЯ ===")
+            for msg in state["stage_conversation"][-3:]:  # Показываем последние 3 сообщения
+                role_label = {
+                    "llm": "🤖 LLM",
+                    "user": "👤 Вы", 
+                    "system": "⚙️ Система"
+                }.get(msg["role"], msg["role"].upper())
+                
+                console.print(f"{role_label}: {msg['content'][:200]}{'...' if len(msg['content']) > 200 else ''}")
+            console.print("=" * 30)
+        
+        # Запрашиваем ввод пользователя
+        console.print(f"\n[bold yellow]Вопрос:[/bold yellow] {user_prompt}")
+        console.print("[dim]Введите ваш ответ (или 'quit' для выхода):[/dim]")
+        
+        try:
+            user_input = input("> ").strip()
+            
+            if user_input.lower() in ['quit', 'exit', 'отмена']:
+                logger.info("Пользователь отменил выполнение")
+                return None
+            
+            if not user_input:
+                console.print("[red]Пустой ввод, попробуйте еще раз[/red]")
+                return await self._handle_human_input_with_iterations(state, progress, task_id)
+            
+            logger.info(f"Получен ответ пользователя: {user_input}")
+            
+            # Обрабатываем ответ пользователя
+            updated_state = await self._process_user_response_in_stage(state, user_input)
+            
+            return updated_state
+            
+        except KeyboardInterrupt:
+            logger.info("Выполнение прервано пользователем (Ctrl+C)")
+            return None
+        except Exception as e:
+            logger.error(f"Ошибка обработки пользовательского ввода: {str(e)}")
+            console.print(f"[red]Ошибка: {str(e)}[/red]")
+            return state
+    
+    async def _process_user_response_in_stage(self, 
+                                            state: WorkflowState, 
+                                            user_response: str) -> WorkflowState:
+        """Обработка ответа пользователя в контексте текущего stage."""
+        
+        from core.logging import get_logger
+        from .state import process_user_confirmation, add_stage_message
+        
+        logger = get_logger("workflow.engine")
+        
+        logger.info("=== ОБРАБОТКА ОТВЕТА ПОЛЬЗОВАТЕЛЯ В STAGE ===")
+        logger.info(f"Ответ: {user_response}")
+        
+        # Обновляем состояние с ответом пользователя
+        updated_state = process_user_confirmation(state, user_response)
+        
+        # Добавляем ответ в историю stage
+        updated_state = add_stage_message(updated_state, "user", user_response)
+        
+        # Если stage ожидает продолжения, нужно найти соответствующий AgentNode
+        # и вызвать его метод process_user_response
+        current_stage = updated_state.get("context", {}).get("current_stage", "")
+        
+        if current_stage:
+            # Ищем AgentNode для текущего stage
+            # Это упрощенная реализация - в реальности нужно более сложная логика
+            logger.info(f"Обработка ответа для stage: {current_stage}")
+            
+            # Пока просто помечаем, что ответ обработан
+            # В полной реализации здесь должен быть вызов AgentNode.process_user_response
+            
+        return updated_state
     
     async def _handle_human_input(self, 
                                 state: WorkflowState,

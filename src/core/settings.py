@@ -71,13 +71,22 @@ class SettingsManager:
     
     def _load_mcp_servers(self):
         """Загрузить MCP серверы из отдельного файла mcp.yaml"""
+        from .logging import get_logger
+        logger = get_logger("settings")
+        
+        logger.debug(f"Загрузка MCP серверов из {self.mcp_config_path}")
+        
         if self.mcp_config_path.exists():
+            logger.debug("Файл mcp.yaml найден")
             with open(self.mcp_config_path, 'r', encoding='utf-8') as f:
                 mcp_data = yaml.safe_load(f) or {}
+            
+            logger.debug(f"Данные из mcp.yaml: {mcp_data}")
             
             # Преобразовать данные в MCPServerConfig объекты
             mcp_servers = []
             for name, config in mcp_data.get('mcp_servers', {}).items():
+                logger.debug(f"Обработка MCP сервера: {name} -> {config}")
                 server_config = MCPServerConfig(
                     name=name,
                     command=config.get('command', ''),
@@ -88,6 +97,13 @@ class SettingsManager:
                     disabled=config.get('disabled', False)
                 )
                 mcp_servers.append(server_config)
+                logger.debug(f"Создан MCPServerConfig: {server_config}")
+            
+            self.settings.mcp_servers = mcp_servers
+            logger.info(f"Загружено {len(mcp_servers)} MCP серверов")
+        else:
+            logger.warning(f"Файл mcp.yaml не найден: {self.mcp_config_path}")
+            self.settings.mcp_servers = []
             
             self.settings.mcp_servers = mcp_servers
     

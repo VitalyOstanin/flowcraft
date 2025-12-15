@@ -36,6 +36,7 @@ class WorkflowStep:
     roles: List[str]
     skippable: bool = True
     description: str = ""
+    timeout: int = 30  # Таймаут в секундах, по умолчанию 30
 
 class BaseWorkflow:
     """Базовый класс workflow"""

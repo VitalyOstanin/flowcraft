@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from rich.console import Console
 from core.settings import SettingsManager
 from core.trust import TrustManager
+from core.logging import init_logging, get_logger
 from agents.manager import AgentManager
 from workflows.loader import WorkflowLoader
 from workflows.manager import WorkflowManager
@@ -75,6 +76,11 @@ def handle_piped_input(input_text: str, config: str, debug: bool):
 @click.option('--debug', is_flag=True, help='Режим отладки')
 def main(config, debug):
     """FlowCraft - Мультиагентный AI CLI агент"""
+    
+    # Инициализация логирования
+    init_logging()
+    logger = get_logger("cli")
+    logger.info("FlowCraft CLI запущен")
     
     # Проверяем наличие данных в stdin (pipe)
     if not sys.stdin.isatty():

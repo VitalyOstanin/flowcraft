@@ -412,31 +412,35 @@ class QwenCodeProvider(BaseLLMProvider):
     
     async def chat_completion_with_tool_accumulation(self, messages: List[BaseMessage], tools: List[Dict] = None, mcp_sessions: Dict[str, Any] = None, max_iterations: int = 10) -> str:
         """
-        Выполнение с накоплением результатов tool calls по архитектуре qwen-code.
+        Выполнение с накоплением результатов tool calls.
+        
+        Args:
+            messages: Список сообщений
+            tools: Доступные инструменты
+            mcp_sessions: MCP сессии
+            max_iterations: Максимальное количество итераций
+            
+        Returns:
+            Финальный ответ LLM с накопленными результатами
         """
         import logging
-        from langchain_core.messages import AIMessage, HumanMessage
         
         logger = logging.getLogger(__name__)
         logger.info("=== CHAT_COMPLETION_WITH_TOOL_ACCUMULATION ===")
         
-        if not tools or not mcp_sessions:
-            # Импортируем оригинальный провайдер для fallback
-            from .qwen_code import QwenCodeProvider
-            provider = QwenCodeProvider()
-            response = await provider.chat_completion(messages)
+        if not tools:
+            # Если нет инструментов, выполняем обычный запрос
+            response = await self.chat_completion(messages)
             return response.content
         
-        # Создаем накопитель для результатов
-        from .tool_accumulator import ToolCallAccumulator
+        # Инициализируем накопитель контекста
         accumulator = ToolCallAccumulator()
-        
         current_messages = messages.copy()
         
         for iteration in range(max_iterations):
             logger.info(f"=== ИТЕРАЦИЯ {iteration + 1}/{max_iterations} ===")
             
-            # Добавляем описание инструментов в system message
+            # Добавляем описание инструментов к системному сообщению
             enhanced_messages = []
             tools_description = self._format_tools_for_prompt(tools)
             
@@ -447,55 +451,61 @@ class QwenCodeProvider(BaseLLMProvider):
                 else:
                     enhanced_messages.append(msg)
             
-            # Генерируем ответ через оригинальный провайдер
-            from .qwen_code import QwenCodeProvider
-            provider = QwenCodeProvider()
-            response = await provider.chat_completion(enhanced_messages)
+            # Логируем запрос к LLM
+            logger.info(f"=== LLM ЗАПРОС ИТЕРАЦИЯ {iteration + 1} ===")
+            for i, msg in enumerate(enhanced_messages):
+                msg_type = type(msg).__name__
+                content_preview = msg.content[:300] + "..." if len(msg.content) > 300 else msg.content
+                logger.info(f"Сообщение {i+1} ({msg_type}): {content_preview}")
             
+            # Генерируем ответ
+            response = await self.chat_completion(enhanced_messages)
+            
+            # Логируем полный ответ LLM
             logger.info(f"=== LLM ОТВЕТ ИТЕРАЦИЯ {iteration + 1} ===")
             logger.info(f"Полный ответ: {response.content}")
+            logger.info(f"Длина ответа: {len(response.content)} символов")
             
-            # Парсим tool calls
-            tool_calls = self._extract_tool_calls_from_json(response.content)
-            
-            if not tool_calls:
+            # Проверяем наличие tool calls
+            if not self._has_tool_calls(response.content):
                 logger.info("Tool calls не найдены в ответе")
-                break
+                # Проверяем, нужно ли продолжать выполнение
+                if self._should_continue_execution(response.content):
+                    logger.info("Продолжаем выполнение - не все операции завершены")
+                    # Добавляем текущий ответ в накопитель
+                    accumulator.add_final_response(response.content)
+                    # Подготавливаем сообщения для продолжения
+                    current_messages = self._build_continuation_messages(
+                        messages, accumulator, response.content
+                    )
+                    continue
+                else:
+                    logger.info("Завершаем итерации - все операции выполнены")
+                    # Добавляем финальный ответ в накопитель
+                    accumulator.add_final_response(response.content)
+                    break
             
-            # Добавляем ответ LLM в контекст
-            current_messages.append(AIMessage(content=response.content))
-            
-            # Выполняем tool calls и собираем результаты
-            tool_results = []
-            for tool_call in tool_calls:
-                tool_name = tool_call['name']
-                server_name = tool_call.get('server', 'unknown')
-                full_name = tool_call.get('full_name', tool_name)
-                params = tool_call['parameters']
-                
-                logger.info(f"Выполнение tool call: {full_name}")
-                try:
-                    result = await self._execute_mcp_tool_with_server(tool_name, server_name, params, tools, mcp_sessions)
-                    accumulator.add_tool_call(full_name, params, result)
-                    tool_results.append(f"Результат {full_name}: {result}")
-                except Exception as e:
-                    error_msg = f"Ошибка {full_name}: {e}"
-                    logger.error(error_msg)
-                    accumulator.add_tool_call(full_name, params, error_msg)
-                    tool_results.append(error_msg)
-            
-            # Добавляем результаты tool calls как user message (как в qwen-code)
-            if tool_results:
-                tool_results_content = "\n".join(tool_results)
-                current_messages.append(HumanMessage(content=tool_results_content))
+            # Выполняем tool calls и накапливаем результаты
+            processed_response = await self._process_tool_calls_with_accumulation(
+                response.content, tools, mcp_sessions, accumulator
+            )
             
             # Проверяем, нужно ли продолжать
-            executed_ops = accumulator.get_executed_operations()
-            if len(executed_ops) >= 3:
+            if not self._should_continue_execution(processed_response):
+                logger.info("LLM сигнализирует о завершении")
+                accumulator.add_final_response(processed_response)
                 break
+            
+            # Подготавливаем сообщения для следующей итерации
+            current_messages = self._build_continuation_messages(
+                messages, accumulator, processed_response
+            )
         
-        # Возвращаем финальный результат
-        return accumulator.get_summary()
+        else:
+            logger.warning(f"Достигнут лимит итераций: {max_iterations}")
+            accumulator.add_final_response("Достигнут лимит итераций выполнения.")
+        
+        return accumulator.get_formatted_result()
     
     def _has_tool_calls(self, response: str) -> bool:
         """Проверяет наличие tool calls в ответе."""
